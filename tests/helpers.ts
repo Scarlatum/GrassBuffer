@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any require-await
 
 import { ChatChoice, ChatMessage } from "~/utils/common.ts";
+import { Toolbelt, ToolSet } from "../source/tools/toolbelt.ts";
 
 export function makeLogger() {
   return { log: () => {} } as any;
@@ -36,4 +37,29 @@ export function mockCompletion(choice: Partial<ChatChoice["message"]> & { finish
       },
     }],
   });
+}
+
+export function makeCategory(name: string, fns: Record<string, (x: any) => any>) {
+  const descriptors = Object.entries(fns).map(([fnName, fn]) => ({
+    name: fnName,
+    mappedFunction: fn,
+    params: [{ argument: "input", type: "string", require: true }],
+  }));
+
+  const set = new ToolSet(descriptors);
+
+  return {
+    constructor: { name },
+    about: `Test category ${name}`,
+    set,
+  } as any;
+}
+
+export function makeToolbelt() {
+  const double = (x: { input: number }) => x.input * 2;
+  const stringify = (x: number) => String(x);
+
+  const cat = makeCategory("TestTools", { double, stringify });
+
+  return { belt: new Toolbelt([cat]), double, stringify };
 }
