@@ -63,3 +63,26 @@ export function makeToolbelt() {
 
   return { belt: new Toolbelt([cat]), double, stringify };
 }
+
+export function makeMockAdapter() {
+  return {
+    db: {
+      query: async () => [undefined],
+      queryRaw: async () => [undefined],
+    },
+  } as any;
+}
+
+export function makeMockProxyRequest(response: ChatChoice["message"] | Error) {
+  return async (_payload: object) => {
+    if (response instanceof Error) {
+      throw response;
+    }
+    return {
+      choices: [{
+        finish_reason: "stop",
+        message: response,
+      }],
+    };
+  };
+}

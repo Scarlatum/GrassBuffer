@@ -1,7 +1,7 @@
 import { Agent } from "./agent.ts";
 import { DatabaseAdapter } from "./database.ts";
 import { MessageContainer } from "./shared.d.ts";
-import { ChatChoice, proxyRequest } from "./utils/common.ts";
+import { ChatChoice, proxyRequest as defaultProxyRequest } from "./utils/common.ts";
 
 type SummaryChunk = {
   from: number;
@@ -13,7 +13,10 @@ export class HistoryCompressor {
 
   static COMPRESSION_RANGE = 20;
 
-  constructor(private adapter: DatabaseAdapter) {}
+  constructor(
+    private adapter: DatabaseAdapter,
+    private proxyRequest: typeof defaultProxyRequest = defaultProxyRequest
+  ) {}
 
   private async segmentHistory(history: Array<MessageContainer>): Promise<number[]> {
 
@@ -21,7 +24,7 @@ export class HistoryCompressor {
       .map((x, i) => `[${ i }] ${ x.from }: ${ x.data }`)
       .join("\n");
 
-    const ans = await proxyRequest({
+    const ans = await this.proxyRequest({
       model: Agent.MODEL,
       temperature: 0.0,
       messages: [
@@ -51,7 +54,7 @@ export class HistoryCompressor {
       .map(x => `${ x.from }: ${ x.data }`)
       .join("\n");
 
-    const ans = await proxyRequest({
+    const ans = await this.proxyRequest({
       model: Agent.MODEL,
       temperature: 0.5,
       messages: [
