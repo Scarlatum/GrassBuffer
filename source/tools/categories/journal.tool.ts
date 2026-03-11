@@ -4,7 +4,7 @@ import type { AnyFunction } from "~/shared.d.ts";
 export class JournalTools extends CategoryTools {
   public override readonly about = "Создание заметок и их поиск по тегам";
 
-  constructor( create: AnyFunction, find: AnyFunction ) {
+  constructor( create: AnyFunction, find: AnyFunction, update: AnyFunction ) {
     super( [
       {
         name: "create",
@@ -20,6 +20,22 @@ export class JournalTools extends CategoryTools {
           },
         ],
         mappedFunction: create,
+      },
+      {
+        name: "update",
+        desc: "Дополнить существующую заметку новым текстом. Используй path из результата find. Не перезаписывает — добавляет в конец",
+        params: [
+          { type: "string", require: true, argument: "path", desc: "Путь к файлу заметки" },
+          { type: "string", require: true, argument: "text", desc: "Текст который будет добавлен в конец заметки" },
+          {
+            type: "array",
+            require: false,
+            argument: "tags",
+            desc: "Обновить теги заметки если нужно",
+            subtype: { type: "string" },
+          },
+        ],
+        mappedFunction: update,
       },
       {
         name: "find",

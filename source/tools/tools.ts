@@ -18,7 +18,8 @@ export class Tools {
     this.belt = new Toolbelt([
       new JournalTools(
         this.create.bind(this), 
-        this.find.bind(this)
+        this.find.bind(this),
+        this.update.bind(this),
       ),
       new FileSystemTools(
         this.pickFile.bind(this)
@@ -96,6 +97,31 @@ export class Tools {
     this.agent.logger.log({ result }, `findJournalData result`);
 
     return result || [];
+
+  }
+
+  private async update(payload: { path: string, text: string, tags?: string[] }) {
+
+    try {
+      await Deno.stat(payload.path);
+    } catch {
+      return `Файл ${ payload.path } не найден`;
+    }
+
+    await Deno.writeTextFile(payload.path, "\n\n" + payload.text, { append: true });
+
+    if ( payload.tags ) {
+      await this.agent.adapter.db.query(`
+        BEGIN TRANSACTION;
+        UPDATE journal SET tags = $tags WHERE path = $path;
+        COMMIT TRANSACTION;
+      `, {
+        path: payload.path,
+        tags: payload.tags.join(","),
+      });
+    }
+
+    return `Journal on path ${ payload.path } was appended`;
 
   }
 
