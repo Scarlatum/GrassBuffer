@@ -5,6 +5,14 @@
       "~/*": ["./source/*"]
     }
   },
+  "test": {
+    "exclude": [".deno"],
+    "permissions": {
+      "env": true,
+      "read": true,
+      "write": true
+    }
+  },
   "tasks": {
     "dev": "deno run -A --env  main.ts",
     "test": "deno test --allow-env --allow-read source/",

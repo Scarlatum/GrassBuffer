@@ -6,15 +6,18 @@ import { Agent } from "./agent.ts";
 
 export class AgenticSession {
 
+  static stepCooldown = parseInt(Deno.env.get("STEP_COOLDOWN") || "2000");
+
   constructor(
     private tools: Tools,
     private messages: ChatMessage[],
     private logger: SimpleLogger,
+    private createCompletion: (payload: object) => Promise<Record<string, object> | Error> = proxyRequest
   ) {}
 
   public async step(counter = { val: 0 }): Promise<string | Error> {
 
-    await sleep(2000);
+    await sleep(AgenticSession.stepCooldown);
 
     const ts = performance.now();
     const choice = await this.inference();
@@ -47,7 +50,7 @@ export class AgenticSession {
       messages: this.messages,
     });
 
-    const res = await proxyRequest(payload);
+    const res = await this.createCompletion(payload);
 
     if (res instanceof Error) {
       this.logger.log(res, "tool proxy error");

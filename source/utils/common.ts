@@ -94,7 +94,7 @@ export async function proxyRequest(body: object) {
 }
 
 export type ChatMessage = {
-  role: "user" | "assistant" | "tool", 
+  role: "user" | "assistant" | "tool" | "system", 
   content: string | null,
   reasoning_content?: string, 
   tool_calls?: Array<{ 
