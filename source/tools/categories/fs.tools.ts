@@ -6,7 +6,8 @@ export class FileSystemTools extends CategoryTools {
 
   constructor(
     pickFileFunction: AnyFunction,
-    writeFileFunction: AnyFunction
+    writeFileFunction: AnyFunction,
+    runPlaygroundFunction: AnyFunction
   ) {
     super([
       {
@@ -40,6 +41,26 @@ export class FileSystemTools extends CategoryTools {
           },
         ],
         mappedFunction: writeFileFunction,
+      },
+      {
+        name: "runPlayground",
+        desc: "Запустить TypeScript файл из playgrounds (таймаут 1 мин, один процесс)",
+        params: [
+          {
+            type: "string",
+            require: true,
+            argument: "path",
+            desc: "Относительный путь, напр. 'script.ts'",
+          },
+          {
+            type: "array",
+            require: false,
+            argument: "args",
+            subtype: { type: "string" },
+            desc: "Аргументы командной строки",
+          },
+        ],
+        mappedFunction: runPlaygroundFunction,
       },
       {
         name: "dir",

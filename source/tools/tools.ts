@@ -5,6 +5,7 @@ import { JournalTools } from "./categories/journal.tool.ts";
 import { ScheduleTools } from "./categories/schedule.tools.ts";
 import { UserTools } from "./categories/user.tools.ts";
 import { Toolbelt } from "./toolbelt.ts";
+import { PlaygroundRunner } from "../playground/runner.ts";
 
 export class Tools {
 
@@ -12,6 +13,7 @@ export class Tools {
   static counter = 0;
 
   public belt
+  private runner = new PlaygroundRunner();
 
   constructor(private agent: Agent) {
 
@@ -23,7 +25,8 @@ export class Tools {
       ),
       new FileSystemTools(
         this.pickFile.bind(this),
-        this.writeFile.bind(this)
+        this.writeFile.bind(this),
+        this.runPlayground.bind(this)
       ),
       new ScheduleTools(
         this.messageReminder.bind(this)
@@ -135,6 +138,16 @@ export class Tools {
     
     await Deno.writeTextFile(fullPath, payload.content);
     return `Файл записан: ${fullPath}`;
+  }
+
+  private async runPlayground(payload: { path: string, args?: string[] }) {
+    const result = await this.runner.run(payload.path, payload.args || []);
+
+    if (result.timedOut) {
+      return `Таймаут (60 сек). stdout: ${result.stdout}\nstderr: ${result.stderr}`;
+    }
+
+    return `Код завершения: ${result.exitCode}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`;
   }
 
   private async pickFile(payload: { paths: Array<string> }) {
