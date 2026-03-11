@@ -10,6 +10,7 @@ import { Integration } from "./interfaces/integration.ts";
 import { Memory } from "./memory.ts";
 import { GrassBot } from "./intergrations/telegram.ts";
 import { MessageContainer } from "./shared.d.ts";
+import { AgenticSession } from "./agent.session.ts";
 
 export class Agent extends Kaya {
 
@@ -235,50 +236,47 @@ export class Agent extends Kaya {
     
   }
 
+  private async getOrInitUser(from: string, sys: { role: string, content: string }): Promise<Tools> {
+
+    const cached = this.memory.user.get(from);
+
+    let desc: string;
+    let tools: Tools;
+
+    if (cached) {
+      desc = cached.about;
+      cached.interactions.lastTimestamp = Date.now();
+      tools = cached.tools;
+    } else {
+      const [description] = await this.adapter.getUserDescription(from);
+      const user = this.memory.initUser(from, desc = description.result, this);
+      tools = user.tools;
+    }
+
+    sys.content += "\nТакже твоя заметка на счёт собеседника:\n" + desc;
+
+    return tools;
+
+  }
+
   /** Запрос к LLM. Опционально createCompletion — для тестов (подмена вызова API). */
   public async ask(text: string, from: string, history: Array<MessageContainer> = []): Promise<string | Error> {
 
-    const sys = { role: "system", content: Kaya.soul }
+    const sys = { role: "system", content: Kaya.soul };
 
-    let sessionTools: Tools;
-
-    { // Apply user info
-
-      const userDescription = this.memory.user.get(from);
-
-      let desc: string;
-
-      if ( userDescription ) { 
-      
-        desc = userDescription.about; 
-
-        userDescription.interactions.lastTimestamp = Date.now();
-
-        sessionTools = userDescription.tools;
-
-      } else {
-
-        const [ description ] = await this.adapter.getUserDescription(from);
-
-        const user = this.memory.initUser(from, desc = description.result, this);
-
-        sessionTools = user.tools;
-
-      }
-
-      sys.content += "\nТакже твоя заметка на счёт собеседника:\n" + desc; 
-
-    }
+    const sessionTools = await this.getOrInitUser(from, sys);
 
     const messages = [
-      sys, ...history.map((x) => ({
-        content : x.data,
-        role    : Kaya.getRole(x.from),
+      sys,
+      ...history.map((x) => ({
+        content: x.data,
+        role: Kaya.getRole(x.from),
       })),
-      { role: Kaya.getRole(from), content: `${ text }`, name: from }
+      { role: Kaya.getRole(from), content: `${text}`, name: from },
     ] as Array<ChatMessage>;
 
-    const res = await this.agenticStep(messages, sessionTools);
+    const session = new AgenticSession(sessionTools, messages, this.logger);
+    const res = await session.step();
 
     this.logger.log({ value: messages }, "messages");
 
