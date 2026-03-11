@@ -1,0 +1,9 @@
+.env
+.deno
+.vscode
+data
+db
+kv
+journal
+logs
+playgrounds
