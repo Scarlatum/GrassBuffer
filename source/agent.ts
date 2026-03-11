@@ -22,15 +22,11 @@ export class Agent extends Kaya {
   public adapter = new DatabaseAdapter();
   public memory = new Memory();
 
-  protected tools;
-
   constructor(public integration: Integration) {
 
     if ( !Agent.MODEL || !Agent.PROXY || !Agent.OWNER || !Agent.OWTAG ) throw Error();
 
     super();
-
-    this.tools = new Tools(this);
 
     integration.setMessageHandler(async (text, contextKey, force): Promise<string | undefined> => {
 
@@ -90,9 +86,26 @@ export class Agent extends Kaya {
 
   }
 
-  private async inference(messages: Array<ChatChoice['message']>): Promise<ChatChoice> {
+  private sessionTools(uid: string) {
 
-    const payload = this.tools.belt.apply({
+    if ( this.memory.user.has(uid) ) {
+
+      return this.memory.user.get(uid)!.tools;
+
+    }
+
+    const user = this.memory.initUser(uid, "Неизвестный мне пользователь", this);
+
+    return user.tools;
+
+  }
+
+  private async inference(
+    messages: Array<ChatChoice['message']>,
+    tools: Tools,
+  ): Promise<ChatChoice> {
+
+    const payload = tools.belt.apply({
       model: Agent.MODEL!,
       messages: messages
     })
@@ -136,13 +149,13 @@ export class Agent extends Kaya {
     
   }
 
-  private async agenticStep(messages: Array<ChatMessage>, step = { val: 0 }) {
+  private async agenticStep(messages: Array<ChatMessage>, tools: Tools, step = { val: 0 }) {
 
     await sleep(2000);
 
     const ts = performance.now();
 
-    const choice = await this.inference(messages);
+    const choice = await this.inference(messages, tools);
 
     switch ( true ) {
       case choice.finish_reason === "error":
@@ -156,7 +169,7 @@ export class Agent extends Kaya {
     const toolpass = this.checkTooling(choice);
 
     const result = toolpass
-      ? await toolpass(choice.message, messages, step)
+      ? await toolpass(choice.message, messages, tools, step)
       : String(choice.message.content);
       ;
 
@@ -166,7 +179,7 @@ export class Agent extends Kaya {
 
   }
 
-  private async inlineToolPass<T extends ChatChoice['message']>(x: T, messages: Array<ChatMessage>, step = { val: 0 }){
+  private async inlineToolPass<T extends ChatChoice['message']>(x: T, messages: Array<ChatMessage>, tools: Tools, step = { val: 0 }){
 
     if ( step.val++ >= 4 ) throw Error("RECURSIVE TOOLING");
 
@@ -180,7 +193,7 @@ export class Agent extends Kaya {
 
     this.logger.log(json, "parseTextTool parsed json");
 
-    const mess = await this.tools.belt.route(
+    const mess = await tools.belt.route(
       name, 
       tool, 
       json.arguments
@@ -190,13 +203,13 @@ export class Agent extends Kaya {
 
     messages.push(mess);
       
-    const { message } = await this.inference(messages);
+    const { message } = await this.inference(messages, tools);
 
     return String(message.content?.trim())
 
   }
 
-  private async toolPass<T extends ChatChoice['message']>(x: T, messages: Array<ChatMessage>, step = { val: 0 }): Promise<string | Error>  {
+  private async toolPass<T extends ChatChoice['message']>(x: T, messages: Array<ChatMessage>, tools: Tools, step = { val: 0 }): Promise<string | Error>  {
 
     if ( step.val++ >= 4 ) throw Error("RECURSIVE TOOLING");
 
@@ -206,7 +219,7 @@ export class Agent extends Kaya {
 
       if ( !tool['function'] ) continue;
 
-      const mess = await this.tools.belt.route(
+      const mess = await tools.belt.route(
         tool.function.name, 
         tool.id, 
         JSON.parse(tool.function.arguments)
@@ -218,7 +231,7 @@ export class Agent extends Kaya {
 
     }
 
-    return await this.agenticStep(messages);
+    return await this.agenticStep(messages, tools);
     
   }
 
@@ -226,6 +239,8 @@ export class Agent extends Kaya {
   public async ask(text: string, from: string, history: Array<MessageContainer> = []): Promise<string | Error> {
 
     const sys = { role: "system", content: Kaya.soul }
+
+    let sessionTools: Tools;
 
     { // Apply user info
 
@@ -239,14 +254,15 @@ export class Agent extends Kaya {
 
         userDescription.interactions.lastTimestamp = Date.now();
 
+        sessionTools = userDescription.tools;
+
       } else {
 
         const [ description ] = await this.adapter.getUserDescription(from);
 
-        this.memory.user.set(from, {
-          about: desc = description.result,
-          interactions: { lastTimestamp: Date.now() }
-        });
+        const user = this.memory.initUser(from, desc = description.result, this);
+
+        sessionTools = user.tools;
 
       }
 
@@ -262,11 +278,11 @@ export class Agent extends Kaya {
       { role: Kaya.getRole(from), content: `${ text }`, name: from }
     ] as Array<ChatMessage>;
 
-    const res = await this.agenticStep(messages);
+    const res = await this.agenticStep(messages, sessionTools);
 
     this.logger.log({ value: messages }, "messages");
 
-    this.tools.belt.setDefault();
+    sessionTools.belt.setDefault();
 
     return res;
 
