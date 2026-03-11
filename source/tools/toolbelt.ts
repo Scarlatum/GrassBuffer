@@ -43,12 +43,11 @@ export class ToolSet {
       type: "function",
       function: {
         name: "pipeline",
-        description: "Chain tools sequentially" 
-          + " Basically it some sort of f(g(payload)) function",
+        description: "Вызвать функции по очереди. По сути это цепочка f(g(payload))",
         parameters: {
           type: "object",
           properties: {
-            payload: { type: "object", description: "Payload for first function in pipeline" },
+            payload: { type: "object", description: "Данные для первой функции в цепочке" },
             functions: { type: "array", items: { type: "string" } },
           }
         }
@@ -110,13 +109,13 @@ export class Toolbelt<const C extends ToolCategories> {
 
     this.currentSet = this.routerTool = new ToolSet({
       getTools: { 
-				desc: "Get a specific tool set for current task", 
+				desc: "Получить набор инструментов для текущей задачи", 
 				mappedFunction: null, 
 				params: [{ 
           argument: "category", 
           require: true, 
           type: "string", 
-          desc: `Can by one of from the list:\n${ desc.join("\n") }` 
+          desc: `Может быть одним из списка:\n${ desc.join("\n") }` 
         }] 
 			}
     }, false);
@@ -165,9 +164,9 @@ export class Toolbelt<const C extends ToolCategories> {
     if ( !params.functions.includes("getTools")  ) {
       if ( !params.functions.every(x => this.currentSet.functionMapping.has(x)) ) {
         return `
-          Some of [${ params.functions.join(",") }] functions probably dosn't exist in curent tool set. 
-          Run getTools with specific category!
-          Current toolSet: ${ this.currentSet.functionMapping.keys().toArray() }
+          Возможно некоторые функции [${ params.functions.join(",") }] не существуют в текущем наборе.
+          Вызови getTools с нужной категорией!
+          Текущий toolSet: ${ this.currentSet.functionMapping.keys().toArray() }
         `
       }
     }
@@ -184,7 +183,7 @@ export class Toolbelt<const C extends ToolCategories> {
 
         this.get(payload.data);
 
-        return `Pipeline interupted by 'getTools' call! Tool category switched to ${ payload.data };`;
+        return `Вызов 'getTools' прервал цепочку! Категория инструментов изменена на ${ payload.data };`;
 
       }
 
@@ -238,12 +237,12 @@ export class Toolbelt<const C extends ToolCategories> {
 
         const x = this.currentSet.functionMapping.get(tool);
 
-        if ( !x ) throw Error("Function dosn't exist in tool set for some reason. You can call getTools with specific category...");
+        if ( !x ) throw Error("Функция не существует в текущем наборе инструментов. Попробуй вызвать getTools с нужной категорией...");
 
         container.content = JSON.stringify( await x(payload));
 
       } catch(e) {
-        container.content = `Error: ${ e instanceof Error ? e.message : 'unknown' }. You can expain to user what is happen! ♥`;
+        container.content = `Ошибка: ${ e instanceof Error ? e.message : 'неизвестная ошибка' }. Объясни пользователю что произошло! ♥`;
       }
     }
 

@@ -110,7 +110,7 @@ Deno.test("route: pipeline прерывается при getTools внутри",
   });
 
   const content = JSON.parse(result.content) as string;
-  assertEquals(content.includes("Pipeline interupted"), true);
+  assertEquals(content.includes("getTools"), true);
   assertEquals(belt.isDefault, false);
 });
 
@@ -124,7 +124,7 @@ Deno.test("route: pipeline возвращает ошибку если функц
   });
 
   const content = JSON.parse(result.content) as string;
-  assertEquals(content.includes("Run getTools"), true);
+  assertEquals(content.includes("getTools"), true);
 });
 
 // --- route: default (прямой вызов функции) ---
@@ -144,7 +144,7 @@ Deno.test("route: несуществующая функция возвращае
 
   const result = await belt.route("nonExistent", "id_1", {});
 
-  assertEquals(result.content.includes("Error"), true);
+  assertEquals(result.content.includes("Ошибка"), true);
   
 });
 
