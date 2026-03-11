@@ -22,7 +22,8 @@ export class Tools {
         this.update.bind(this),
       ),
       new FileSystemTools(
-        this.pickFile.bind(this)
+        this.pickFile.bind(this),
+        this.writeFile.bind(this)
       ),
       new ScheduleTools(
         this.messageReminder.bind(this)
@@ -123,6 +124,17 @@ export class Tools {
 
     return `Journal on path ${ payload.path } was appended`;
 
+  }
+
+  private async writeFile(payload: { path: string, content: string }) {
+    const normalizedPath = payload.path.replace(/^[\\/]/, "");
+    const fullPath = `./playgrounds/${normalizedPath}`;
+    
+    const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
+    await Deno.mkdir(dir, { recursive: true });
+    
+    await Deno.writeTextFile(fullPath, payload.content);
+    return `Файл записан: ${fullPath}`;
   }
 
   private async pickFile(payload: { paths: Array<string> }) {

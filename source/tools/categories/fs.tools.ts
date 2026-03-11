@@ -4,7 +4,10 @@ import type { AnyFunction } from "~/shared.d.ts";
 export class FileSystemTools extends CategoryTools {
   public override readonly about = "Всё что нужно для работы с файловой системой";
 
-  constructor(pickFileFunction: AnyFunction) {
+  constructor(
+    pickFileFunction: AnyFunction,
+    writeFileFunction: AnyFunction
+  ) {
     super([
       {
         name: "readFiles",
@@ -20,8 +23,27 @@ export class FileSystemTools extends CategoryTools {
         mappedFunction: pickFileFunction,
       },
       {
+        name: "writeFile",
+        desc: "Записать TypeScript файл в папку playgrounds",
+        params: [
+          {
+            type: "string",
+            require: true,
+            argument: "path",
+            desc: "Относительный путь внутри playgrounds, напр. 'utils/helper.ts'",
+          },
+          {
+            type: "string",
+            require: true,
+            argument: "content",
+            desc: "Содержимое файла",
+          },
+        ],
+        mappedFunction: writeFileFunction,
+      },
+      {
         name: "dir",
-        desc: "Содержимое папок journal и logs",
+        desc: "Содержимое папок journal, logs и playgrounds",
         params: [],
         mappedFunction: async function () {
           const list: string[] = [];
@@ -37,6 +59,7 @@ export class FileSystemTools extends CategoryTools {
 
           await processDir("./journal");
           await processDir("./logs");
+          await processDir("./playgrounds");
 
           return list;
         },
