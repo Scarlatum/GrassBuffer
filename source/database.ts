@@ -1,6 +1,7 @@
 import { Surreal } from "surrealdb"
 import { MessageContainer } from "./shared.d.ts";
 import { sleep } from "gramio";
+import { HistoryCompressor } from "./agent.compression.ts";
 
 export class DatabaseAdapter {
 
@@ -136,25 +137,42 @@ export class DatabaseAdapter {
     `);
   }
 
-  public async getUserHistory(uid: string) {
-  
+  public async getUserHistory(uid: string, limit: number = HistoryCompressor.COMPRESSION_RANGE) {
+
     await this.checkUser(uid);
 
-    const [ history ] = await this.db.query<Array<MessageContainer>[]>(/*surql*/`
+    const [ history ] = await this.db.query<Array<MessageContainer>[]>(`
       BEGIN TRANSACTION;
 
-      LET $qua = 12;
-
       LET $arr = array::flatten(select value <-chat<-message from only user:${ uid });
-      LET $beg = math::max([ array::len($arr) - $qua, 0 ]);
+      LET $beg = math::max([ array::len($arr) - $limit, 0 ]);
 
-      RETURN select * from $arr order by date asc limit $qua start $beg;
+      RETURN select * from $arr order by date asc limit $limit start $beg;
 
       COMMIT TRANSACTION;
-    `);
+    `, { limit });
 
     return history;
 
+  }
+
+  public async getMessageCount(uid: string): Promise<number> {
+    const [ result ] = await this.db.query<number[]>(`
+      BEGIN TRANSACTION;
+      RETURN array::len(select value <-chat<-message from only user:${ uid });
+      COMMIT TRANSACTION;
+    `);
+    return result ?? 0;
+  }
+
+  public async getUserSummaries(uid: string) {
+    const [ result ] = await this.db.query<Array<{ from: number, to: number, content: string }[]>>(`
+      BEGIN TRANSACTION;
+      RETURN select from, to, content from array::flatten(select value ->has_summary->summary from only user:${ uid }) order by from asc;
+      COMMIT TRANSACTION;
+    `);
+
+    return result ?? [];
   }
 
 }

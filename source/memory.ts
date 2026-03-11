@@ -7,7 +7,8 @@ type UserMemoryDescriptor = {
   about: string,
   tools: Tools,
   interactions: {
-    lastTimestamp: number
+    lastTimestamp: number,
+    messageCount: number
   }
 }
 
@@ -15,11 +16,16 @@ export class Memory {
 
   public user = new Map<NameTag, UserMemoryDescriptor>();
 
-  public initUser(uid: string, about: string, ctx: Agent) {
+  public async initUser(uid: string, ctx: Agent) {
 
-    const user = {
-      about,
-      interactions: { lastTimestamp: Date.now() },
+    const [ count, [ query ] ] = await Promise.all([
+      ctx.adapter.getMessageCount(uid),
+      ctx.adapter.getUserDescription(uid),
+    ]);
+
+    const user: UserMemoryDescriptor = {
+      about: query.result,
+      interactions: { lastTimestamp: Date.now(), messageCount: count },
       tools: new Tools(ctx)
     }
 

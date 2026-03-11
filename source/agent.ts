@@ -11,6 +11,7 @@ import { Memory } from "./memory.ts";
 import { GrassBot } from "./intergrations/telegram.ts";
 import { MessageContainer } from "./shared.d.ts";
 import { AgenticSession } from "./agent.session.ts";
+import { HistoryCompressor } from "./agent.compression.ts";
 
 export class Agent extends Kaya {
 
@@ -21,6 +22,7 @@ export class Agent extends Kaya {
 
   public logger = new SimpleLogger();
   public adapter = new DatabaseAdapter();
+  public compressor = new HistoryCompressor(this.adapter);
   public memory = new Memory();
 
   constructor(public integration: Integration) {
@@ -87,7 +89,7 @@ export class Agent extends Kaya {
 
   }
 
-  private sessionTools(uid: string) {
+  private async sessionTools(uid: string) {
 
     if ( this.memory.user.has(uid) ) {
 
@@ -95,7 +97,7 @@ export class Agent extends Kaya {
 
     }
 
-    const user = this.memory.initUser(uid, "Неизвестный мне пользователь", this);
+    const user = await this.memory.initUser(uid, this);
 
     return user.tools;
 
@@ -236,35 +238,20 @@ export class Agent extends Kaya {
     
   }
 
-  private async getOrInitUser(from: string, sys: { role: string, content: string }): Promise<Tools> {
-
-    const cached = this.memory.user.get(from);
-
-    let desc: string;
-    let tools: Tools;
-
-    if (cached) {
-      desc = cached.about;
-      cached.interactions.lastTimestamp = Date.now();
-      tools = cached.tools;
-    } else {
-      const [description] = await this.adapter.getUserDescription(from);
-      const user = this.memory.initUser(from, desc = description.result, this);
-      tools = user.tools;
-    }
-
-    sys.content += "\nТакже твоя заметка на счёт собеседника:\n" + desc;
-
-    return tools;
-
-  }
-
   /** Запрос к LLM. Опционально createCompletion — для тестов (подмена вызова API). */
   public async ask(text: string, from: string, history: Array<MessageContainer> = []): Promise<string | Error> {
 
     const sys = { role: "system", content: Kaya.soul };
 
-    const sessionTools = await this.getOrInitUser(from, sys);
+    const tools     = await this.sessionTools(from);
+    const summaries = await this.adapter.getUserSummaries(from);
+
+    if ( summaries.length > 0 ) {
+      sys.content += "\n\nКраткое содержание предыдущих разговоров:\n" 
+        + summaries
+          .map(s => `[${ new Date(s.from).toLocaleDateString() }]: ${ s.content }`)
+          .join("\n");
+    }
 
     const messages = [
       sys,
@@ -275,18 +262,26 @@ export class Agent extends Kaya {
       { role: Kaya.getRole(from), content: `${text}`, name: from },
     ] as Array<ChatMessage>;
 
-    const session = new AgenticSession(sessionTools, messages, this.logger);
+    const session = new AgenticSession(tools, messages, this.logger);
     const res = await session.step();
 
     this.logger.log({ value: messages }, "messages");
 
-    sessionTools.belt.setDefault();
+    tools.belt.setDefault();
 
     return res;
 
   }
 
   public async message(message: string, from: string, history: Array<MessageContainer>) {
+
+    let user = this.memory.user.get(from);
+
+    if ( !user ) { 
+
+      user ??= await this.memory.initUser(from, this);
+
+    }
 
     const response = await this.ask(message, from, history);
 
@@ -298,6 +293,10 @@ export class Agent extends Kaya {
       from,
       from
     );
+
+    if ( user && ++user.interactions.messageCount % HistoryCompressor.COMPRESSION_RANGE === 0 ) {
+      this.compressor.compress(from, history); // не await — не блокируем ответ
+    }
 
     return response;
 
