@@ -9,9 +9,8 @@ export class FileSystemTools extends CategoryTools {
     writeFileFunction: AnyFunction,
     runPlaygroundFunction: AnyFunction
   ) {
-    super([
-      {
-        name: "readFiles",
+    super({
+      readFiles: {
         desc: "Прочитать содержимое файлов",
         params: [
           {
@@ -23,8 +22,7 @@ export class FileSystemTools extends CategoryTools {
         ],
         mappedFunction: pickFileFunction,
       },
-      {
-        name: "writeFile",
+      writeFile: {
         desc: "Записать TypeScript файл в папку playgrounds",
         params: [
           {
@@ -42,8 +40,7 @@ export class FileSystemTools extends CategoryTools {
         ],
         mappedFunction: writeFileFunction,
       },
-      {
-        name: "runPlayground",
+      runPlayground: {
         desc: "Запустить TypeScript файл из playgrounds (таймаут 1 мин, один процесс)",
         params: [
           {
@@ -62,8 +59,7 @@ export class FileSystemTools extends CategoryTools {
         ],
         mappedFunction: runPlaygroundFunction,
       },
-      {
-        name: "dir",
+      dir: {
         desc: "Содержимое папок journal, logs и playgrounds",
         params: [],
         mappedFunction: async function () {
@@ -85,6 +81,6 @@ export class FileSystemTools extends CategoryTools {
           return list;
         },
       },
-    ]);
+    });
   }
 }

@@ -5,9 +5,8 @@ export class ScheduleTools extends CategoryTools {
   public override readonly about = "Инструменты для отложенных действий (сообщений или напоминаний)";
 
   constructor(reminder: AnyFunction) {
-    super([
-      {
-        name: "message",
+    super({
+      message: {
         desc: "Отложить сообщение на некоторое время",
         params: [
           { type: "number", require: true, argument: "timeout" },
@@ -15,6 +14,6 @@ export class ScheduleTools extends CategoryTools {
         ],
         mappedFunction: reminder,
       },
-    ]);
+    });
   }
 }

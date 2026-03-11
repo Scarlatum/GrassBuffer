@@ -6,9 +6,8 @@ export class UserTools extends CategoryTools {
     "Инструменты связанные с личной информацией собеседников";
 
   constructor(update: AnyFunction) {
-    super([
-      {
-        name: "updateUserDescription",
+    super({
+      updateUserDescription: {
         desc: "Если считаешь что нужно обновить описание собеседника по каким-то причинам",
         params: [
           {
@@ -20,6 +19,6 @@ export class UserTools extends CategoryTools {
         ],
         mappedFunction: update,
       },
-    ]);
+    });
   }
 }

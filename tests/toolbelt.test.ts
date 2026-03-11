@@ -14,7 +14,6 @@ Deno.test("createTool: создаёт корректную структуру и
       { argument: "foo", type: "string", require: true, desc: "foo param" },
       { argument: "bar", type: "number", require: false },
     ],
-    mappedFunction: null
   });
 
   assertEquals(tool.type, "function");

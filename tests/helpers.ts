@@ -40,11 +40,13 @@ export function mockCompletion(choice: Partial<ChatChoice["message"]> & { finish
 }
 
 export function makeCategory(name: string, fns: Record<string, (x: any) => any>) {
-  const descriptors = Object.entries(fns).map(([fnName, fn]) => ({
-    name: fnName,
-    mappedFunction: fn,
-    params: [{ argument: "input", type: "string", require: true }],
-  }));
+  const descriptors = Object.entries(fns).reduce((acc, [fnName, fn]) => {
+    acc[fnName] = {
+      mappedFunction: fn,
+      params: [{ argument: "input", type: "string", require: true }],
+    };
+    return acc;
+  }, {} as Record<string, any>);
 
   const set = new ToolSet(descriptors);
 

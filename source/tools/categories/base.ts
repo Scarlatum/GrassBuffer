@@ -5,8 +5,7 @@ export abstract class CategoryTools {
   public abstract readonly about: string;
 
   protected constructor(
-    descriptors: Array<DeriveDescription<{
-      name: string;
+    descriptors: Record<string, DeriveDescription<{
       desc?: string;
       params: Array<any>;
       mappedFunction: AnyFunction | null;

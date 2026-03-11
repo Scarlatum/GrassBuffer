@@ -5,9 +5,8 @@ export class JournalTools extends CategoryTools {
   public override readonly about = "Создание заметок и их поиск по тегам";
 
   constructor( create: AnyFunction, find: AnyFunction, update: AnyFunction ) {
-    super( [
-      {
-        name: "create",
+    super( {
+      create: {
         desc: "Если считаешь нужным, можешь создать заметку чтобы что-то не забыть. Постарайся сделать её достаточно объёмной (~2-4 абзаца)",
         params: [
           { type: "string", require: true, argument: "text" },
@@ -21,8 +20,7 @@ export class JournalTools extends CategoryTools {
         ],
         mappedFunction: create,
       },
-      {
-        name: "update",
+      update: {
         desc: "Дополнить существующую заметку новым текстом. Используй path из результата find. Не перезаписывает — добавляет в конец",
         params: [
           { type: "string", require: true, argument: "path", desc: "Путь к файлу заметки" },
@@ -37,8 +35,7 @@ export class JournalTools extends CategoryTools {
         ],
         mappedFunction: update,
       },
-      {
-        name: "find",
+      find: {
         desc: "Поиск по журналам. Результат потом можешь прочитать с помощью readFiles через getTools с fs",
         params: [
           {
@@ -50,6 +47,6 @@ export class JournalTools extends CategoryTools {
         ],
         mappedFunction: find,
       },
-    ] );
+    } );
   }
 }

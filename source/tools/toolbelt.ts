@@ -15,8 +15,9 @@ interface ITool {
     }
   }
 }
+
 interface ToolDescriptor {
-  name: string,
+  desc?: string,
   params: Array<DeriveDescription<{
     argument: string,
     type: string,
@@ -25,6 +26,7 @@ interface ToolDescriptor {
   }>>
   mappedFunction: AnyFunction | null
 }
+
 export type ToolCategories = Array<{
   set: ToolSet,
   about: string
@@ -35,7 +37,7 @@ export class ToolSet {
   public functionMapping = new Map<string, AnyFunction>();
   public tools: ITool[] = []
   
-  constructor(public descriptors: Array<DeriveDescription<ToolDescriptor>>, pipeline: boolean = true) {
+  constructor(public descriptors: Record<string, ToolDescriptor>, pipeline: boolean = true) {
 
     if ( pipeline ) this.tools.push({
       type: "function",
@@ -53,15 +55,13 @@ export class ToolSet {
       }
     });
 
-    for ( const x of descriptors ) {
+    for ( const [ name, x ] of Object.entries(descriptors) ) {
 
-      const tool = Toolbelt.createTool(x);
+      const tool = Toolbelt.createTool({ ...x, name });
 
       if ( pipeline ) {
 
         const key = tool.function.name = `pipeline::${ tool.function.name }`;
-
-        // tool.function.description += " USE IT ONLY WITH PIPELINE FUNCTION!";
 
         if ( x.mappedFunction ) this.functionMapping.set(key, x.mappedFunction);
 
@@ -108,16 +108,18 @@ export class Toolbelt<const C extends ToolCategories> {
       category: z.enum(keys)
     });
 
-    this.currentSet = this.routerTool = new ToolSet([
-      { name: "getTools", desc: "Get a specific tool set for current task", mappedFunction: null, params: [
-        { 
+    this.currentSet = this.routerTool = new ToolSet({
+      getTools: { 
+				desc: "Get a specific tool set for current task", 
+				mappedFunction: null, 
+				params: [{ 
           argument: "category", 
           require: true, 
           type: "string", 
           desc: `Can by one of from the list:\n${ desc.join("\n") }` 
-        }
-      ] }
-    ], false);
+        }] 
+			}
+    }, false);
 
   }
 
@@ -125,7 +127,7 @@ export class Toolbelt<const C extends ToolCategories> {
     return this.currentSet === this.routerTool;
   }
 
-  static createTool({ params, desc, name }: DeriveDescription<ToolDescriptor>): ITool {
+  static createTool({ params, desc, name }: { params: ToolDescriptor['params'], desc?: string, name: string }): ITool {
 
     const properties: Record<string, { type: string, description?: string }> = {};
 
@@ -198,14 +200,6 @@ export class Toolbelt<const C extends ToolCategories> {
 
   }
 
-  private async batch(params: { functions: Array<string>, payload: Array<unknown> }) {
-    return await Promise.all(params.functions
-      .map(x => this.currentSet.functionMapping.get(x))
-      .filter(x => x !== undefined)
-      .map(async (x, i) => await x(params.payload[i]))
-    );
-  }
-
   public setDefault() {
     return this.currentSet = this.routerTool;
   }
@@ -240,9 +234,6 @@ export class Toolbelt<const C extends ToolCategories> {
       case "pipeline":
         container.content = JSON.stringify( await this.seq(payload));
         break;
-      // case "batch":
-      //   container.content = JSON.stringify( await this.batch(payload));
-      //   break;
       default: try {
 
         const x = this.currentSet.functionMapping.get(tool);
