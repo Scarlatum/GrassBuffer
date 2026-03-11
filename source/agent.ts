@@ -3,7 +3,7 @@ import { sleep } from "gramio";
 import { Kaya } from "./kaya.ts"
 
 import { Tools } from "./tools/tools.ts";
-import { ChatChoice, ChatMessage, proxyRequest } from "./utils/utils.ts";
+import { ChatChoice, ChatMessage, proxyRequest } from "./utils/common.ts";
 import { SimpleLogger } from "./logger.ts";
 import { DatabaseAdapter } from "./database.ts";
 import { Integration } from "./interfaces/integration.ts";
@@ -107,7 +107,7 @@ export class Agent extends Kaya {
         finish_reason: "stop",
         message: {
           role: "tool",
-          content: `Inference Error: ${ res.message }`
+          content: `Inference Error: ${ res.message }; cause: ${ res.cause };`
         }
       }
 

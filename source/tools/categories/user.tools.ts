@@ -1,6 +1,5 @@
-// tools/categories/user.tools.ts
 import { CategoryTools } from "./base.ts";
-import type { AnyFunction } from "../../shared.ts";
+import type { AnyFunction } from "~/shared.d.ts";
 
 export class UserTools extends CategoryTools {
   public override readonly about =

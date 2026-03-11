@@ -1,5 +1,5 @@
 import { ToolSet } from "../toolbelt.ts";
-import type { DeriveDescription, AnyFunction } from "../../shared.ts";
+import type { DeriveDescription, AnyFunction } from "~/shared.d.ts";
 export abstract class CategoryTools {
   public set: ToolSet;
   public abstract readonly about: string;

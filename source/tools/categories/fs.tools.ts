@@ -1,6 +1,5 @@
-// tools/categories/fs.tools.ts
 import { CategoryTools } from "./base.ts";
-import type { AnyFunction } from "../../shared.ts";
+import type { AnyFunction } from "~/shared.d.ts";
 
 export class FileSystemTools extends CategoryTools {
   public override readonly about = "Всё что нужно для работы с файловой системой";

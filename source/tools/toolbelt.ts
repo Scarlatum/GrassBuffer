@@ -1,7 +1,7 @@
 import { z } from "zod"
 
-import { ChatMessage } from "../utils/utils.ts";
-import { AnyFunction, DeriveDescription } from "../shared.ts";
+import { ChatMessage } from "../utils/common.ts";
+import { AnyFunction, DeriveDescription } from "../shared.d.ts";
 
 interface ITool {
   type: "function",

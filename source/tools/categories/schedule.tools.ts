@@ -1,6 +1,5 @@
-// tools/categories/schedule.tools.ts
 import { CategoryTools } from "./base.ts";
-import type { AnyFunction } from "../../shared.ts";
+import type { AnyFunction } from "~/shared.d.ts";
 
 export class ScheduleTools extends CategoryTools {
   public override readonly about = "Инструменты для отложенных действий (сообщений или напоминаний)";

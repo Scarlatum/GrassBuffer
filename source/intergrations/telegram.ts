@@ -1,5 +1,5 @@
 import { Bot, sleep } from "gramio";
-import { formatKayaMessage } from "../utils/utils.ts";
+import { formatKayaMessage } from "../utils/common.ts";
 import type { MessageRequestHandler } from "../interfaces/integration.ts";
 import { Integration } from "../interfaces/integration.ts";
 

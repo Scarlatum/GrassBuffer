@@ -1,6 +1,6 @@
 import { Agent } from "./agent.ts";
 import { MessageContainer } from "./shared.d.ts";
-import { ChatChoice, proxyRequest } from "./utils/utils.ts";
+import { ChatChoice, proxyRequest } from "./utils/common.ts";
 
 const kv = await Deno.openKv("./kv/events");
 

@@ -1,12 +1,11 @@
-// tools/categories/journal.tool.ts
 import { CategoryTools } from "./base.ts";
-import type { AnyFunction } from "../../shared.ts";
+import type { AnyFunction } from "~/shared.d.ts";
 
 export class JournalTools extends CategoryTools {
   public override readonly about = "Создание заметок и их поиск по тегам";
 
-  constructor(create: AnyFunction, find: AnyFunction) {
-    super([
+  constructor( create: AnyFunction, find: AnyFunction ) {
+    super( [
       {
         name: "create",
         desc: "Если считаешь нужным, можешь создать заметку чтобы что-то не забыть. Постарайся сделать её достаточно объёмной (~2-4 абзаца)",
@@ -35,6 +34,6 @@ export class JournalTools extends CategoryTools {
         ],
         mappedFunction: find,
       },
-    ]);
+    ] );
   }
 }

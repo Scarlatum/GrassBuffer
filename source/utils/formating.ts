@@ -1,4 +1,4 @@
-import { tempDegradation } from "./utils.ts";
+import { tempDegradation } from "./common.ts";
 
 function randomSeq() {
 
