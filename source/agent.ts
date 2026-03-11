@@ -12,9 +12,11 @@ import { GrassBot } from "./intergrations/telegram.ts";
 import { MessageContainer } from "./shared.d.ts";
 import { AgenticSession } from "./agent.session.ts";
 import { HistoryCompressor } from "./agent.compression.ts";
+import ruLocale from "./locales/ru.json" with { type: "json" };
 
 export class Agent extends Kaya {
 
+  static readonly LOCALE = ruLocale;
   static readonly MODEL = Deno.env.get("MODEL")!;
   static readonly PROXY = Deno.env.get("PROXY")!;
   static readonly OWNER = Deno.env.get("OWNER")!;

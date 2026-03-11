@@ -2,6 +2,8 @@ import { z } from "zod"
 
 import { ChatMessage } from "../utils/common.ts";
 import { AnyFunction, DeriveDescription } from "../shared.d.ts";
+import { Agent } from "../agent.ts";
+import { ToolError } from "../locales/keys.ts";
 
 interface ITool {
   type: "function",
@@ -163,11 +165,9 @@ export class Toolbelt<const C extends ToolCategories> {
 
     if ( !params.functions.includes("getTools")  ) {
       if ( !params.functions.every(x => this.currentSet.functionMapping.has(x)) ) {
-        return `
-          Возможно некоторые функции [${ params.functions.join(",") }] не существуют в текущем наборе.
-          Вызови getTools с нужной категорией!
-          Текущий toolSet: ${ this.currentSet.functionMapping.keys().toArray() }
-        `
+        const msg = Agent.LOCALE[ToolError.FUNCTION_NOT_IN_SET];
+        return msg.replace("{functions}", params.functions.join(", "))
+          + `\nТекущий toolSet: ${ this.currentSet.functionMapping.keys().toArray() }`;
       }
     }
 
@@ -183,7 +183,8 @@ export class Toolbelt<const C extends ToolCategories> {
 
         this.get(payload.data);
 
-        return `Вызов 'getTools' прервал цепочку! Категория инструментов изменена на ${ payload.data };`;
+        const msg = Agent.LOCALE[ToolError.CATEGORY_SWITCH];
+        return msg.replace("{category}", payload.data.category);
 
       }
 
@@ -237,12 +238,13 @@ export class Toolbelt<const C extends ToolCategories> {
 
         const x = this.currentSet.functionMapping.get(tool);
 
-        if ( !x ) throw Error("Функция не существует в текущем наборе инструментов. Попробуй вызвать getTools с нужной категорией...");
+        if ( !x ) throw Error(Agent.LOCALE[ToolError.FUNCTION_NOT_FOUND]);
 
         container.content = JSON.stringify( await x(payload));
 
       } catch(e) {
-        container.content = `Ошибка: ${ e instanceof Error ? e.message : 'неизвестная ошибка' }. Объясни пользователю что произошло! ♥`;
+        const msg = Agent.LOCALE[ToolError.UNKNOWN_ERROR];
+        container.content = msg.replace("{message}", e instanceof Error ? e.message : 'неизвестная ошибка');
       }
     }
 
