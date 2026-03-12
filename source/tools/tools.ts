@@ -5,7 +5,19 @@ import { JournalTools } from "./categories/journal.tool.ts";
 import { ScheduleTools } from "./categories/schedule.tools.ts";
 import { UserTools } from "./categories/user.tools.ts";
 import { Toolbelt } from "./toolbelt.ts";
-import { PlaygroundRunner } from "../playground/runner.ts";
+import { Runner } from "../playground/runner.ts";
+import z from "zod";
+
+const shared = z.object({
+  info: z.string(),
+  from: z.enum(["writeFile", "readFiles", "runPlayground"]),
+});
+
+export const readFilesResultSchema = shared.extend({
+  data: z.array(z.string())
+});
+
+type ToolResultContainer = z.infer<typeof shared> & { data: unknown };
 
 export class Tools {
 
@@ -13,7 +25,7 @@ export class Tools {
   static counter = 0;
 
   public belt
-  private runner = new PlaygroundRunner();
+  private runner = new Runner();
 
   constructor(private agent: Agent) {
 
@@ -24,7 +36,7 @@ export class Tools {
         this.update.bind(this),
       ),
       new FileSystemTools(
-        this.pickFile.bind(this),
+        this.readFiles.bind(this),
         this.writeFile.bind(this),
         this.runPlayground.bind(this)
       ),
@@ -129,7 +141,15 @@ export class Tools {
 
   }
 
-  private async writeFile(payload: { path: string, content: string }) {
+  private async writeFile(payload: { path: string, content: string }): Promise<string | ToolResultContainer> {
+
+    if (!payload?.path) {
+      return "Ошибка: не указан путь к файлу. Пример: writeFile с аргументом path='utils/helper.ts'";
+    }
+    if (!payload?.content) {
+      return "Ошибка: не указано содержимое файла. Пример: writeFile с аргументом content='console.log(1)'";
+    }
+    
     const normalizedPath = payload.path.replace(/^[\\/]/, "");
     const fullPath = `./playgrounds/${normalizedPath}`;
     
@@ -137,20 +157,96 @@ export class Tools {
     await Deno.mkdir(dir, { recursive: true });
     
     await Deno.writeTextFile(fullPath, payload.content);
-    return `Файл записан: ${fullPath}`;
+
+    return JSON.stringify({
+      info: "Файл записан",
+      from: "writeFile",
+      data: {
+        path: normalizedPath,
+        args: []
+      }
+    } satisfies ToolResultContainer);
+
   }
 
-  private async runPlayground(payload: { path: string, args?: string[] }) {
-    const result = await this.runner.run(payload.path, payload.args || []);
+  private async runPlayground(payload: unknown): Promise<string | ToolResultContainer> {
 
-    if (result.timedOut) {
-      return `Таймаут (60 сек). stdout: ${result.stdout}\nstderr: ${result.stderr}`;
+    let json: unknown;
+
+    try {
+
+      json = JSON.parse(String(payload));
+
+    } catch(e) {
+
+      return (e as Error).message;
+
     }
 
-    return `Код завершения: ${result.exitCode}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`;
+    const meta = await shared.safeParseAsync(json);
+
+    if ( meta.error ) return meta.error.message;
+
+    const container = {
+      from: "runPlayground",
+      info: "Результат исполенения файла или файлов"
+    } satisfies z.infer<typeof shared>;
+
+    const fn = async (path: string, args: string[] = []) => {
+      const run = await this.runner.run(path, args);
+
+      return run.timedOut
+        ? `Таймаут (60 сек).\n stdout: ${ run.stdout }\n stderr: ${ run.stderr }`
+        : `Код завершения: ${ run.exitCode }; \nstdout: ${ run.stdout }; \nstderr: ${ run.stderr }`
+        ;
+    }
+
+    let result: null | ToolResultContainer = null
+
+    switch ( meta.data.from ) {
+      case "writeFile": {
+
+        const { data, error } = await shared.extend({
+          data: z.object({
+            path: z.string(),
+            args: z.array(z.string())
+          })
+        }).safeParseAsync(json);
+
+        if ( error ) return error.message;
+
+        result = Object.assign(container, {
+          data: await fn(data.data.path, data.data.args)
+        })
+
+      }; break;
+      case "readFiles": {
+
+        const schema = await readFilesResultSchema.safeParseAsync(json);
+
+        if ( schema.error ) return schema.error.message;
+
+        const results = Array<string>();
+
+        for ( const path of schema.data.data ) {
+          results.push(`Инпут файла ${ await fn(path) }`)
+        }
+
+        result = Object.assign(container, {
+          data: results
+        })
+
+      }; break
+      default: result = Object.assign(container, {
+        data: null
+      });
+    }
+
+    return JSON.stringify(result);
+
   }
 
-  private async pickFile(payload: { paths: Array<string> }) {
+  private async readFiles(payload: { paths: Array<string> }): Promise<string> {
 
 		const data = Array<string>();
 
@@ -164,15 +260,21 @@ export class Tools {
 
 				this.agent.logger.log({ error: e }, "Ошибка чтения файла");
 
-        if ( payload.paths.length === 1 ) return `
-          Ошибка чтения файла ${ path }. Ошибка: ${ (e as Error).message } 
-        `
+        if ( payload.paths.length === 1 ) return JSON.stringify({
+          info: `Ошибка чтения файла ${ path }. Ошибка: ${ (e as Error).message }`,
+          from: "readFiles",
+          data: null,
+        })
 
 			}
 
 		}
 
-		return "Содержимое файлов:\n" + data.join("\n");
+    return JSON.stringify({
+      info: "Файлы прочитаны",
+      from: "readFiles",
+      data: data,
+    } satisfies ToolResultContainer);
 
   }
 

@@ -5,7 +5,7 @@ export class FileSystemTools extends CategoryTools {
   public override readonly about = "Всё что нужно для работы с файловой системой";
 
   constructor(
-    pickFileFunction: AnyFunction,
+    readFilesFunction: AnyFunction,
     writeFileFunction: AnyFunction,
     runPlaygroundFunction: AnyFunction
   ) {
@@ -16,11 +16,11 @@ export class FileSystemTools extends CategoryTools {
           {
             type: "array",
             require: true,
-            argument: "paths",
+            argument: "data",
             subtype: { type: "string" },
-          },
+          }
         ],
-        mappedFunction: pickFileFunction,
+        mappedFunction: readFilesFunction,
       },
       writeFile: {
         desc: "Записать TypeScript файл в папку playgrounds",
