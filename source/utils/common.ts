@@ -93,6 +93,34 @@ export async function proxyRequest(body: object) {
 
 }
 
+export async function openRouterEmbeddingRequest(body: object) {
+
+  const apiKey = Deno.env.get("OPENROUTER");
+  if (!apiKey) return Error("OPENROUTER env variable is not set");
+
+  const res = await fetch("https://openrouter.ai/api/v1/embeddings", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (res.status !== 200) return Error("OpenRouter embedding error", {
+    cause: await res.text()
+  });
+
+  let data: object;
+
+  try { data = await res.json() } catch(e) {
+    return e as Error;
+  }
+
+  return data as Record<string, object>
+
+}
+
 export type ChatMessage = {
   role: "user" | "assistant" | "tool" | "system", 
   content: string | null,

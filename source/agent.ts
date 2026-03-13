@@ -2,8 +2,7 @@ import { Kaya } from "./kaya.ts"
 
 import ruLocale from "./locales/ru.json" with { type: "json" };
 
-import { Tools } from "./tools/tools.ts";
-import { ChatChoice, ChatMessage, proxyRequest } from "./utils/common.ts";
+import { ChatMessage, proxyRequest, openRouterEmbeddingRequest } from "./utils/common.ts";
 import { SimpleLogger } from "./logger.ts";
 import { DatabaseAdapter } from "./database.ts";
 import { Integration } from "./interfaces/integration.ts";
@@ -12,12 +11,14 @@ import { GrassBot } from "./intergrations/telegram.ts";
 import { MessageContainer } from "./shared.d.ts";
 import { AgenticSession } from "./agent.session.ts";
 import { HistoryCompressor } from "./agent.compression.ts";
+import { EmbeddingsManager } from "./agent.embeddings.ts";
 
 export class Agent extends Kaya {
 
   static readonly LOCALE = ruLocale;
   static readonly MODEL = Deno.env.get("MODEL")!;
   static readonly PROXY = Deno.env.get("PROXY")!;
+  static readonly OPENROUTER = Deno.env.get("OPENROUTER");
   static readonly OWNER = Deno.env.get("OWNER")!;
   static readonly OWTAG = Deno.env.get("OWNER_TAG")!;
 
@@ -25,6 +26,11 @@ export class Agent extends Kaya {
   public adapter = new DatabaseAdapter();
   public compressor = new HistoryCompressor(this.adapter);
   public memory = new Memory();
+  public embedder = new EmbeddingsManager(
+    this.adapter,
+    this.embeddingRequest.bind(this),
+    { model: "text-embedding-3-small" }
+  );
 
   constructor(public integration: Integration) {
 
@@ -82,6 +88,15 @@ export class Agent extends Kaya {
 
   }
 
+  private async embeddingRequest(body: object): Promise<Record<string, object> | Error> {
+    if (Agent.OPENROUTER) {
+      const res = await openRouterEmbeddingRequest(body);
+      if (!(res instanceof Error)) return res;
+      this.logger.log({ error: res }, "OpenRouter embedding failed, falling back to proxy");
+    }
+    return proxyRequest(body);
+  }
+
   static inlineTool(text: string | null) {
 
     if ( !text ) return false;
@@ -104,20 +119,28 @@ export class Agent extends Kaya {
 
   }
 
+  private async getRelevantSummaries(
+    uid: string,
+    query: string
+  ): Promise<string> {
+    const results = await this.embedder.searchHybrid(uid, query, { limit: 3 });
+    if (results.length === 0) return "";
+
+    return "\n\nРелевантные фрагменты из предыдущих разговоров:\n"
+      + results.map(r =>
+          `[${new Date(r.from).toLocaleDateString()}]: ${r.content}`
+        ).join("\n");
+  }
+
   /** Запрос к LLM. Опционально createCompletion — для тестов (подмена вызова API). */
   public async ask(text: string, from: string, history: Array<MessageContainer> = []): Promise<string | Error> {
 
     const sys = { role: "system", content: Kaya.soul };
 
-    const tools     = await this.sessionTools(from);
-    const summaries = await this.adapter.getUserSummaries(from);
+    const tools = await this.sessionTools(from);
+    const summary = await this.getRelevantSummaries(from, text);
 
-    if ( summaries.length > 0 ) {
-      sys.content += "\n\nКраткое содержание предыдущих разговоров:\n" 
-        + summaries
-          .map(s => `[${ new Date(s.from).toLocaleDateString() }]: ${ s.content }`)
-          .join("\n");
-    }
+    if ( summary ) sys.content += summary;
 
     const clean = text.includes("##CLN##");
 
@@ -161,7 +184,9 @@ export class Agent extends Kaya {
     );
 
     if ( ++user.interactions.messageCount % HistoryCompressor.COMPRESSION_RANGE === 0 ) {
-      this.compressor.compress(from, history); // не await — не блокируем ответ
+      this.compressor.compress(from, history).then(x => 
+        this.embedder.indexSummariesBatch(from, x)
+      );
     }
 
     return response;

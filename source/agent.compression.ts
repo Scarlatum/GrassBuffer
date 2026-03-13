@@ -3,7 +3,7 @@ import { DatabaseAdapter } from "./database.ts";
 import { MessageContainer } from "./shared.d.ts";
 import { ChatChoice, proxyRequest as defaultProxyRequest } from "./utils/common.ts";
 
-type SummaryChunk = {
+export type SummaryChunk = {
   from: number;
   to: number;
   content: string;
