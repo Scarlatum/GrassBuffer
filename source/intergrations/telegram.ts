@@ -100,7 +100,7 @@ export class GrassBot extends Integration {
     return {
       update: async (text: string) => {
         return Boolean(await this.bot.api.editMessageText({
-          text,
+          text: code`${ text }`,
           message_id: mess.message_id,
           chat_id: mess.chat.id
         }));

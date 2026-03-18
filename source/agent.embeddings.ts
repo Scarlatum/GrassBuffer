@@ -1,6 +1,4 @@
-import { DatabaseAdapter } from "./database.ts";
 import { SummaryChunk } from "./agent.compression.ts";
-import { SimpleLogger } from "./logger.ts";
 import { summaryChunkSchema } from "./schemas/agent.schemas.ts";
 import { Agent } from "./agent.ts";
 import { openRouterEmbeddingRequest, proxyRequest } from "./utils/common.ts";
@@ -19,9 +17,8 @@ export class EmbeddingsManager {
 
   private model: string = "nvidia/llama-nemotron-embed-vl-1b-v2:free";
   private dimensions: number = 384;
-  public logger = new SimpleLogger();
 
-  constructor(private adapter: DatabaseAdapter) {}
+  constructor(private ctx: Agent) {}
 
   private async embeddingRequest(body: object): Promise<Record<string, object> | Error> {
 
@@ -31,7 +28,7 @@ export class EmbeddingsManager {
 
       if (!(res instanceof Error)) return res;
 
-      this.logger.log({ error: res }, "OpenRouter embedding failed, falling back to proxy");
+      this.ctx.logger.log({ error: res }, "OpenRouter embedding failed, falling back to proxy");
 
     }
 
@@ -47,14 +44,14 @@ export class EmbeddingsManager {
       });
 
       if (res instanceof Error) {
-        this.logger.log({ error: res, model: this.model }, "Embedding request failed");
+        this.ctx.logger.log({ error: res, model: this.model }, "Embedding request failed");
         return null;
       }
 
       const data = res.data as Array<{ embedding: number[] }>;
       return data?.[0]?.embedding ?? null;
     } catch (e) {
-      this.logger.log({ error: e, text: text.slice(0, 100) }, "Embedding generation error");
+      this.ctx.logger.log({ error: e, text: text.slice(0, 100) }, "Embedding generation error");
       return null;
     }
   }
@@ -62,7 +59,7 @@ export class EmbeddingsManager {
   private validateSummaryChunk(raw: unknown): SummaryChunk | null {
     const result = summaryChunkSchema.safeParse(raw);
     if (!result.success) {
-      this.logger.log({ error: result.error, raw }, "Invalid summary chunk schema");
+      this.ctx.logger.log({ error: result.error, raw }, "Invalid summary chunk schema");
       return null;
     }
     return result.data;
@@ -80,7 +77,7 @@ export class EmbeddingsManager {
     const embedding = await this.embed(validated.content);
 
     if (!embedding) {
-      this.logger.log({ uid, from: validated.from, to: validated.to }, "Failed to generate embedding");
+      this.ctx.logger.log({ uid, from: validated.from, to: validated.to }, "Failed to generate embedding");
       return;
     }
 
@@ -91,7 +88,7 @@ export class EmbeddingsManager {
       // WHERE from = $from AND to = $to
       // AND ->has_summary->user CONTAINS ${uid};
 
-      await this.adapter.db.query(/*surql*/`
+      await this.ctx.adapter.db.query(/*surql*/`
         BEGIN TRANSACTION;
 
         UPDATE summary:${ summary.id!.id } SET embedding = $embedding;
@@ -102,7 +99,7 @@ export class EmbeddingsManager {
       });
     } catch (e) {
 
-      this.logger.log({ error: e, uid, from: validated.from }, "Failed to save embedding to DB. Save them as file");
+      this.ctx.logger.log({ error: e, uid, from: validated.from }, "Failed to save embedding to DB. Save them as file");
 
       if ( Array.isArray(embedding) && typeof embedding[0] === "number" ) {
 
@@ -141,7 +138,7 @@ export class EmbeddingsManager {
 
     }
 
-    this.logger.log({ uid, processed, total: summaries.length }, "Batch indexing complete");
+    this.ctx.logger.log({ uid, processed, total: summaries.length }, "Batch indexing complete");
 
     return processed;
 
@@ -152,12 +149,12 @@ export class EmbeddingsManager {
     const embedding = await this.embed(query);
 
     if (!embedding) {
-      this.logger.log({ uid, query: query.slice(0, 50) }, "Search: failed to embed query");
+      this.ctx.logger.log({ uid, query: query.slice(0, 50) }, "Search: failed to embed query");
       return [];
     }
 
     try {
-      const [ result ] = await this.adapter.db.query<Array<EmbeddingResult[]>>(/*surql*/`
+      const [ result ] = await this.ctx.adapter.db.query<Array<EmbeddingResult[]>>(/*surql*/`
         BEGIN TRANSACTION;
 
         LET $x = SELECT VALUE ->has_summary->summary FROM ONLY user:${ uid };
@@ -183,7 +180,7 @@ export class EmbeddingsManager {
       return (result || []) as EmbeddingResult[];
 
     } catch (e) {
-      this.logger.log({ error: e, uid }, "Search query failed");
+      this.ctx.logger.log({ error: e, uid }, "Search query failed");
       return [];
     }
   }
@@ -191,7 +188,7 @@ export class EmbeddingsManager {
   async reindexAll(uid: string): Promise<number> {
     try {
 
-      const summaries = await this.adapter.db.query(/*surql*/`
+      const summaries = await this.ctx.adapter.db.query(/*surql*/`
         SELECT * FROM (
           SELECT VALUE ->has_summary->summary from only user:${ uid }
         )
@@ -206,7 +203,7 @@ export class EmbeddingsManager {
       return records.length;
 
     } catch (e) {
-      this.logger.log({ error: e, uid }, "Reindex failed");
+      this.ctx.logger.log({ error: e, uid }, "Reindex failed");
       return 0;
     }
   }

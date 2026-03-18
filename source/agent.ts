@@ -29,7 +29,7 @@ export class Agent extends Kaya {
   public logger = new SimpleLogger();
   public adapter = new DatabaseAdapter();
   public compressor = new HistoryCompressor(this);
-  public embedder = new EmbeddingsManager(this.adapter);
+  public embedder = new EmbeddingsManager(this);
   public memory = new Memory(this);
   public aggregator: Aggregator;
 

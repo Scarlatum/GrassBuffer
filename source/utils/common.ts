@@ -81,6 +81,9 @@ export function formatKayaMessage(message: string) {
 
     parts.push([x.bold ? bold : format, text]);
 
+    // !DEBUG
+    console.log(parts, segments);
+
     return parts;
 
   }
