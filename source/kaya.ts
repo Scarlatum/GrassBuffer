@@ -1,12 +1,13 @@
 import { Agent } from "./agent.ts";
 import { MessageContainer } from "./shared.d.ts";
 import { ChatChoice, proxyRequest } from "./utils/common.ts";
+import { BASE_PATH } from "./utils/paths.ts";
 
-const kv = await Deno.openKv("./kv/events");
+const kv = await Deno.openKv(`${BASE_PATH}/kv/events`);
 
 export class Kaya {
 
-  static soul = Deno.readTextFileSync("./source/data/soul.txt");
+  static soul = Deno.readTextFileSync(`${BASE_PATH}/source/data/soul.txt`);
   static kv = kv;
 	static boringSecondsRange = 60 * 60;
 

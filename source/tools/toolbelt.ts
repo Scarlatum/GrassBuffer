@@ -24,6 +24,7 @@ interface ToolDescriptor {
     argument: string,
     type: string,
     require: boolean,
+    enum?: Array<string>,
     subtype?: DeriveDescription<{ type: string }>
   }>>
   mappedFunction: AnyFunction | null
@@ -45,12 +46,24 @@ export class ToolSet {
       type: "function",
       function: {
         name: "pipeline",
-        description: "Вызвать функции по очереди. По сути это цепочка f(g(payload))",
+        description: "pipeline([g,f], x) -> pipeline::f(pipeline::g(x)) -> y",
         parameters: {
           type: "object",
           properties: {
             payload: { type: "object", description: "Данные для первой функции в цепочке" },
             functions: { type: "array", items: { type: "string" } },
+          }
+        }
+      }
+    }, {
+      type: "function",
+      function: {
+        name: "resetTools",
+        description: "Сбрасывает набор интрументов. Нужно для того, чтобы выбрать новую категорию",
+        parameters: {
+          type: "object",
+          properties: {
+            reason: { type: "string", description: "Можешь описать причину, если это нужно" },
           }
         }
       }
@@ -80,7 +93,7 @@ export class Toolbelt<const C extends ToolCategories> {
   static readonly TOOLS_INSTRUCTIONS = `
     Использование интрументов:
     1. ВАЖНО! Удостоверься что вызываешь pipeline если ранее был вызван getTools.
-    2. Не вызывай одни и тебе же фукнции несколько раз внутри одного pipeline.
+    2. Все функции что вызываются после getTools всегда идут с припиской pipeline::
   `;
 
   private readonly toolMap = new Map<string, { set: ToolSet, about: string }>()
@@ -117,7 +130,8 @@ export class Toolbelt<const C extends ToolCategories> {
           argument: "category", 
           require: true, 
           type: "string", 
-          desc: `Может быть одним из списка:\n${ desc.join("\n") }` 
+          enum: keys,
+          desc: `Может быть одним из списка:\n${ desc.join("\n") }`,
         }] 
 			}
     }, false);
@@ -228,6 +242,10 @@ export class Toolbelt<const C extends ToolCategories> {
     }
 
     switch ( tool ) {
+      case "resetTools":
+        this.setDefault();
+        container.content = "Набор интрументов сброшен. Можно вызвать getTools"
+        break;
       case "getTools": 
         container.content = JSON.stringify( this.get(payload) );
         break;
@@ -248,7 +266,11 @@ export class Toolbelt<const C extends ToolCategories> {
       }
     }
 
-    return container;
+    return await z.object({
+      role: z.enum(["user", "assistant", "tool"]),
+      'tool_call_id': z.string(),
+      content: z.string()
+    }).loose().parseAsync(container)
 
   }
 

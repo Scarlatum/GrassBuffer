@@ -6,7 +6,12 @@ export type MessageRequestHandler = (
   text: string,
   contextKey: string,
   force: boolean
-) => Promise<string | undefined>;
+) => Promise<string | void>;
+
+export type MessageHandler = {
+  update: (text: string) => Promise<boolean>
+  delete: () => void
+}
 
 /**
  * Абстрактный интерфейс интеграции (бот, другой канал и т.д.).
@@ -19,5 +24,7 @@ export abstract class Integration {
 
   /** Запуск интеграции после того, как Kaya подписался на хуки. */
   abstract start(): void;
+
+  abstract notify(text: string, uid: string): Promise<Error | MessageHandler>;
 
 }

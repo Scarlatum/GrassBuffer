@@ -2,6 +2,7 @@ import { Surreal } from "surrealdb"
 import { MessageContainer } from "./shared.d.ts";
 import { sleep } from "gramio";
 import { HistoryCompressor } from "./agent.compression.ts";
+import { BASE_PATH } from "./utils/paths.ts";
 
 export class DatabaseAdapter {
 
@@ -21,6 +22,11 @@ export class DatabaseAdapter {
 
     this.credentials = { username, password };
 
+    const surrealPath = Deno.env.get("SURREAL_PATH") ?? `${BASE_PATH}/db`;
+    const dbUrl = surrealPath.includes("/") || surrealPath.includes("\\") 
+      ? `surrealkv://${surrealPath}` 
+      : `surrealkv://${surrealPath}`;
+
     const process = new Deno.Command("surreal", {
       args: [
         "start",
@@ -28,7 +34,7 @@ export class DatabaseAdapter {
         "0.0.0.0:8050",
         "--log",
         "debug",
-        "surrealkv://db",
+        dbUrl,
       ],
     }).spawn();
 
@@ -97,14 +103,13 @@ export class DatabaseAdapter {
    * @param contextKey — id контекста (username или chat_n123 для группы с id -123), 
    * @param fromUser — кто написал (для группы — username, иначе = contextKey) 
    * */
-  public saveMessages(x: string, y: string, contextKey: string, fromUser?: string) {
-    const from = fromUser ?? contextKey;
+  public saveMessages(x: string, y: string, username: string) {
     this.db.queryRaw(/*surql*/`
       BEGIN TRANSACTION;
 
       LET $x = CREATE ONLY message CONTENT {
         data: '${ x }',
-        from: '${ from }',
+        from: '${ username }',
         date: ${ Date.now() }
       };
 
@@ -114,8 +119,8 @@ export class DatabaseAdapter {
         date: ${ Date.now() + 1 }
       };
 
-      RELATE user:${ contextKey }<-chat<-$x;
-      RELATE user:${ contextKey }<-chat<-$y;
+      RELATE user:${ username }<-chat<-$x;
+      RELATE user:${ username }<-chat<-$y;
 
       COMMIT TRANSACTION;
     `);
@@ -145,6 +150,9 @@ export class DatabaseAdapter {
       BEGIN TRANSACTION;
 
       LET $arr = array::flatten(select value <-chat<-message from only user:${ uid });
+
+			if ( $arr is none ) return [];
+
       LET $beg = math::max([ array::len($arr) - $limit, 0 ]);
 
       RETURN select * from $arr order by date asc limit $limit start $beg;
@@ -159,7 +167,8 @@ export class DatabaseAdapter {
   public async getMessageCount(uid: string): Promise<number> {
     const [ result ] = await this.db.query<number[]>(`
       BEGIN TRANSACTION;
-      RETURN array::len(select value <-chat<-message from only user:${ uid });
+			LET $x = select value <-chat<-message from only user:${ uid };
+      RETURN array::len($x || []);
       COMMIT TRANSACTION;
     `);
     return result ?? 0;
@@ -168,7 +177,8 @@ export class DatabaseAdapter {
   public async getUserSummaries(uid: string) {
     const [ result ] = await this.db.query<Array<{ from: number, to: number, content: string }[]>>(`
       BEGIN TRANSACTION;
-      RETURN select from, to, content from array::flatten(select value ->has_summary->summary from only user:${ uid }) order by from asc;
+			LET $x = select value ->has_summary->summary from only user:${ uid };
+      RETURN select from, to, content from array::flatten($x || []) order by from asc;
       COMMIT TRANSACTION;
     `);
 

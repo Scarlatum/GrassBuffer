@@ -5,7 +5,8 @@ import { JournalTools } from "./categories/journal.tool.ts";
 import { ScheduleTools } from "./categories/schedule.tools.ts";
 import { UserTools } from "./categories/user.tools.ts";
 import { Toolbelt } from "./toolbelt.ts";
-import { Runner } from "../playground/runner.ts";
+import { Runner } from "../runner.ts";
+import { BASE_PATH } from "../utils/paths.ts";
 import z from "zod";
 
 const shared = z.object({
@@ -13,9 +14,17 @@ const shared = z.object({
   from: z.enum(["writeFile", "readFiles", "runPlayground"]),
 });
 
-export const readFilesResultSchema = shared.extend({
-  data: z.array(z.string())
-});
+const outSchemas = {
+  writeFile: shared.extend({
+    data: z.object({
+      path: z.string(),
+      args: z.array(z.string())
+    })
+  }),
+  readFiles: shared.extend({
+    data: z.array(z.string())
+  })
+} as const;
 
 type ToolResultContainer = z.infer<typeof shared> & { data: unknown };
 
@@ -56,9 +65,9 @@ export class Tools {
 
   private async create(payload: { text: string, description: string, tags: string[] }) {
     
-    if ( Tools.counter === 0 ) Deno.mkdirSync(`./journal/${ Tools.journalSession }`);
+    if ( Tools.counter === 0 ) Deno.mkdirSync(`${BASE_PATH}/journal/${ Tools.journalSession }`);
 
-    const path = `./journal/${ Tools.journalSession }/${ String(Tools.counter++).padStart(3,"0") }.md`;
+    const path = `${BASE_PATH}/journal/${ Tools.journalSession }/${ String(Tools.counter++).padStart(3,"0") }.md`;
 
     await Deno.writeTextFile(path, payload.text);
     await this.agent.adapter.db.query(`
@@ -76,7 +85,7 @@ export class Tools {
     `, {
       path,
       description: payload.description,
-      tags: payload.tags.join(","),
+      tags: payload.tags?.join(",") || "",
     });
 
     return `jounrnal on path ${ path } was updated`
@@ -154,15 +163,15 @@ export class Tools {
     const fullPath = `./playgrounds/${normalizedPath}`;
     
     const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
-    await Deno.mkdir(dir, { recursive: true });
     
+    await Deno.mkdir(dir, { recursive: true });
     await Deno.writeTextFile(fullPath, payload.content);
 
     return JSON.stringify({
       info: "Файл записан",
       from: "writeFile",
       data: {
-        path: normalizedPath,
+        path: fullPath,
         args: []
       }
     } satisfies ToolResultContainer);
@@ -171,86 +180,81 @@ export class Tools {
 
   private async runPlayground(payload: unknown): Promise<string | ToolResultContainer> {
 
-    let json: unknown;
+    const pack = (data: string) => JSON.stringify({
+      from: "runPlayground",
+      info: "Результат исполенения файла или файлов",
+      data,
+    } satisfies ToolResultContainer)
 
-    try {
+    { // ? Process payload when it already structured as valid object that come someelse that pipeline
 
-      json = JSON.parse(String(payload));
+      if ( payload && typeof payload === "object" && "path" in payload ) {
 
-    } catch(e) {
+        const sch = await z.object({
+          path: z.string(),
+          args: z.array(z.string()).optional()
+        }).safeParseAsync(payload);
 
-      return (e as Error).message;
+        if ( sch.error ) return sch.error.message;
+
+        return pack(Runner.fmt(await this.runner.run(sch.data.path, sch.data.args)))
+
+      }
+
+      else if ( typeof payload !== "string" ) return "Broken payload";
 
     }
 
+    const json = JSON.parse(String(payload)); 
     const meta = await shared.safeParseAsync(json);
 
     if ( meta.error ) return meta.error.message;
 
-    const container = {
-      from: "runPlayground",
-      info: "Результат исполенения файла или файлов"
-    } satisfies z.infer<typeof shared>;
+    { // ? Process payload from different entrypoints
 
-    const fn = async (path: string, args: string[] = []) => {
-      const run = await this.runner.run(path, args);
+      switch ( meta.data.from ) {
+        case "writeFile": {
 
-      return run.timedOut
-        ? `Таймаут (60 сек).\n stdout: ${ run.stdout }\n stderr: ${ run.stderr }`
-        : `Код завершения: ${ run.exitCode }; \nstdout: ${ run.stdout }; \nstderr: ${ run.stderr }`
-        ;
+          const { data, error } = await outSchemas.writeFile.safeParseAsync(json);
+
+          if ( error ) return error.message;
+
+					// console.log("Parsed schema of writeFile: ", data.data);
+
+          return pack(Runner.fmt(await this.runner.run(data.data.path, data.data.args)));
+
+        };
+        case "readFiles": {
+
+          const schema = await outSchemas.readFiles.safeParseAsync(json);
+
+          if ( schema.error ) return schema.error.message;
+
+          const results = Array<string>();
+
+          for ( const path of schema.data.data ) {
+            results.push(`Инпут файла ${
+              Runner.fmt(await this.runner.run(path))
+            }`)
+          }
+
+          return pack(results.join("\n"));
+
+        };
+        default:
+          return pack("undefined")
+      }
+
+
     }
-
-    let result: null | ToolResultContainer = null
-
-    switch ( meta.data.from ) {
-      case "writeFile": {
-
-        const { data, error } = await shared.extend({
-          data: z.object({
-            path: z.string(),
-            args: z.array(z.string())
-          })
-        }).safeParseAsync(json);
-
-        if ( error ) return error.message;
-
-        result = Object.assign(container, {
-          data: await fn(data.data.path, data.data.args)
-        })
-
-      }; break;
-      case "readFiles": {
-
-        const schema = await readFilesResultSchema.safeParseAsync(json);
-
-        if ( schema.error ) return schema.error.message;
-
-        const results = Array<string>();
-
-        for ( const path of schema.data.data ) {
-          results.push(`Инпут файла ${ await fn(path) }`)
-        }
-
-        result = Object.assign(container, {
-          data: results
-        })
-
-      }; break
-      default: result = Object.assign(container, {
-        data: null
-      });
-    }
-
-    return JSON.stringify(result);
 
   }
 
-  private async readFiles(payload: { paths: Array<string> }): Promise<string> {
+  private async readFiles(payload: { data: Array<string> }): Promise<string> {
 
 		const data = Array<string>();
 
-		for ( const path of payload.paths ) {
+		for ( const path of payload.data ) {
 			
 			this.agent.logger.log({ value: path }, "Кая пытается прочитать файл");
 
@@ -260,7 +264,7 @@ export class Tools {
 
 				this.agent.logger.log({ error: e }, "Ошибка чтения файла");
 
-        if ( payload.paths.length === 1 ) return JSON.stringify({
+        if ( payload.data.length === 1 ) return JSON.stringify({
           info: `Ошибка чтения файла ${ path }. Ошибка: ${ (e as Error).message }`,
           from: "readFiles",
           data: null,

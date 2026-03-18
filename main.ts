@@ -1,6 +1,8 @@
 import { GrassBot } from "./source/intergrations/telegram.ts";
 import { Agent } from "./source/agent.ts";
 
+declare const globalThis: { agent: Agent };
+
 const token = Deno.env.get("TOKEN");
 if (!token) throw Error("ENV ERROR");
 
@@ -14,4 +16,5 @@ Deno.addSignalListener("SIGINT", () => {
 });
 
 const bot = new GrassBot(token);
-new Agent(bot);
+
+globalThis.agent = new Agent([ bot ]);

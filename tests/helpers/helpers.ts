@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any require-await
 
 import { ChatChoice, ChatMessage } from "~/utils/common.ts";
-import { Toolbelt, ToolSet } from "../source/tools/toolbelt.ts";
+import { Toolbelt, ToolSet } from "../../source/tools/toolbelt.ts";
 
 export function makeLogger() {
   return { log: () => {} } as any;

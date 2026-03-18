@@ -2,7 +2,7 @@
 
 import { assertEquals } from "@std/assert";
 import { AgenticSession } from "../source/agent.session.ts";
-import { makeLogger, makeMessages, makeTools, mockCompletion } from "./helpers.ts";
+import { makeLogger, makeMessages, makeTools, mockCompletion } from "./helpers/helpers.ts";
 
 AgenticSession.stepCooldown = 0;
 

@@ -2,12 +2,15 @@ import { CategoryTools } from "./base.ts";
 import type { AnyFunction } from "~/shared.d.ts";
 
 export class FileSystemTools extends CategoryTools {
+
+  static allowedDirs = [ "journal", "logs", "playgrounds" ];
+
   public override readonly about = "Всё что нужно для работы с файловой системой";
 
   constructor(
-    readFilesFunction: AnyFunction,
-    writeFileFunction: AnyFunction,
-    runPlaygroundFunction: AnyFunction
+    read: AnyFunction,
+    write: AnyFunction,
+    exec: AnyFunction
   ) {
     super({
       readFiles: {
@@ -20,7 +23,7 @@ export class FileSystemTools extends CategoryTools {
             subtype: { type: "string" },
           }
         ],
-        mappedFunction: readFilesFunction,
+        mappedFunction: read,
       },
       writeFile: {
         desc: "Записать TypeScript файл в папку playgrounds",
@@ -38,7 +41,7 @@ export class FileSystemTools extends CategoryTools {
             desc: "Содержимое файла",
           },
         ],
-        mappedFunction: writeFileFunction,
+        mappedFunction: write,
       },
       runPlayground: {
         desc: "Запустить TypeScript файл из playgrounds (таймаут 1 мин, один процесс)",
@@ -57,28 +60,56 @@ export class FileSystemTools extends CategoryTools {
             desc: "Аргументы командной строки",
           },
         ],
-        mappedFunction: runPlaygroundFunction,
+        mappedFunction: exec,
       },
       dir: {
         desc: "Содержимое папок journal, logs и playgrounds",
-        params: [],
-        mappedFunction: async function () {
-          const list: string[] = [];
+        params: [
+          {
+            type: "string",
+            require: true,
+            argument: "includes",
+            desc: "Фильтрация по папкам",
+            enum: FileSystemTools.allowedDirs,
+          },
+        ],
+        mappedFunction: async function (params: { includes: string }) {
+
+          const paths: string[] = [];
 
           const processDir = async (path: string) => {
+
             for await (const entry of Deno.readDir(path)) {
+
               const x = path + "/" + entry.name;
 
-              if (entry.isFile) list.push(x);
+              if (entry.isFile && x.includes(params.includes)) paths.push(x);
+
               else await processDir(x);
+
             }
           };
 
-          await processDir("./journal");
-          await processDir("./logs");
-          await processDir("./playgrounds");
+          const [ dir ] = FileSystemTools
+            .allowedDirs
+            .filter(x => x.includes(params.includes));
 
-          return list;
+          if ( dir ) { 
+            try {
+
+              const stat = await Deno.stat(dir);
+
+              if ( stat.isFile ) return dir;
+
+              else if ( stat.isDirectory ) return processDir(dir);
+
+            } catch(e) { return (e as Error).message };
+          }
+
+          else await Promise.all(FileSystemTools.allowedDirs.map(x => processDir(`./${ x }`)))
+
+          return paths;
+          
         },
       },
     });

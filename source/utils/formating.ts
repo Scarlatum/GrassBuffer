@@ -50,3 +50,14 @@ export function transmission(text: string) {
   return result;
 
 }
+
+export function omitTextReasoning(text: string) {
+
+  if ( text.includes("<think>") === false ) return text;
+
+  const tag = "</think>";
+  const end = text.indexOf(tag);
+
+  return text.slice(end + tag.length);
+
+}

@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { assertEquals } from "@std/assert";
 import { Toolbelt } from "../source/tools/toolbelt.ts";
-import { makeToolbelt } from "./helpers.ts";
+import { makeToolbelt } from "./helpers/helpers.ts";
 
 // --- createTool ---
 

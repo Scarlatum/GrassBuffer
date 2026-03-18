@@ -2,6 +2,8 @@ export type AnyFunction = (...args: any[]) => any;
 
 export type DeriveDescription<T> = T & { desc?: string };
 
+export type UnwrapPromise<T> = T extends Promise<infer V> ? V : never;
+
 declare type MessageContainer = { 
   date: number, 
   data: string, 

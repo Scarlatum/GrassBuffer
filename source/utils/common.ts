@@ -1,5 +1,7 @@
-import { format, bold, join } from "gramio";
+import { format, bold, join, code } from "gramio";
 import { Agent } from "../agent.ts";
+
+const codeRE = /`{3}(.|\n)+?`{3}/gm;
 
 export type KayaSegment = { bold: boolean; text: string };
 
@@ -12,47 +14,81 @@ export function tempDegradation(norm: number) {
 
 /** Разбивает текст на сегменты по маркеру **жирный** (одиночный * в тексте заменяется на **). Чистая функция для тестов. */
 export function parseKayaBoldSegments(message: string): KayaSegment[] {
+
   const out: KayaSegment[] = [];
+
   let form = false;
-  let strBuffer = "";
+  let buffer = "";
 
   const s = message.replaceAll("*", "**");
 
   for (let i = 0; i < s.length; i++) {
+
     const old: boolean = form;
 
     if (s[i] === "*" && s[i + 1] === "*") {
-      i++;
-      form = !form;
-      if (old !== form && strBuffer.length > 0) {
-        out.push({ bold: old, text: strBuffer });
-        strBuffer = "";
+
+      i++; form = !form;
+      
+      if (old !== form && buffer.length > 0) {
+        out.push({ bold: old, text: buffer });
+        buffer = "";
       }
+
       continue;
+
     }
+
     if (s[i] === "*" && s[i - 1] === "*") continue;
 
-    if (old !== form && strBuffer.length > 0) {
-      out.push({ bold: old, text: strBuffer });
-      strBuffer = "";
+    if (old !== form && buffer.length > 0) {
+      out.push({ bold: old, text: buffer });
+      buffer = "";
     }
-    strBuffer += s[i];
+
+    buffer += s[i];
+
   }
 
-  if (strBuffer.length > 0) {
-    out.push({ bold: form, text: strBuffer });
-  }
+  if (buffer.length > 0) out.push({ bold: form, text: buffer });
 
   return out;
+
 }
 
 /** Форматирует ответ Каи для Telegram: **текст** → жирный. */
 export function formatKayaMessage(message: string) {
+
   const segments = parseKayaBoldSegments(message);
-  const res = segments.map((seg) =>
-    [seg.bold ? bold : format, seg.text] as const
-  );
-  return format`${join(res, (x) => x[0]`${x[1]}`, "")}`;
+
+  const parts = Array<[ typeof format, string ]>();
+
+  for ( const x of segments ) {
+
+    let text = x.text;
+
+		if ( !x.bold ) {
+			for ( const [ x ] of text.matchAll(codeRE) ) {
+
+				const c = x.split("\n").slice(1,-1);
+
+        parts.push([ code, c.join("\n") ]);
+
+        text = text.replace(x, "")
+
+			}
+		}
+
+    parts.push([x.bold ? bold : format, text]);
+
+    return parts;
+
+  }
+
+  const res = join(parts, ([ fn, val ]) => fn`${ val }`, "");
+
+  return format`${ res }`;
+
 }
 
 const rtf = new Intl.RelativeTimeFormat("ru", { numeric: "auto" });
@@ -93,10 +129,32 @@ export async function proxyRequest(body: object) {
 
 }
 
-export async function openRouterEmbeddingRequest(body: object) {
+export async function openRouterRequest(body: object, apiKey: string) {
 
-  const apiKey = Deno.env.get("OPENROUTER");
-  if (!apiKey) return Error("OPENROUTER env variable is not set");
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (res.status !== 200) return Error("OpenRouter model error", {
+    cause: await res.text()
+  });
+
+  let data: object;
+
+  try { data = await res.json() } catch(e) {
+    return e as Error;
+  }
+
+  return data as Record<string, object>
+
+}
+
+export async function openRouterEmbeddingRequest(body: object, apiKey: string) {
 
   const res = await fetch("https://openrouter.ai/api/v1/embeddings", {
     method: "POST",
@@ -125,6 +183,7 @@ export type ChatMessage = {
   role: "user" | "assistant" | "tool" | "system", 
   content: string | null,
   reasoning?: string, 
+  tool_call_id?: string,
   tool_calls?: Array<{ 
     id: string, 
     function?: { 

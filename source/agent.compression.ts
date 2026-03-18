@@ -1,7 +1,8 @@
+import { sleep } from "gramio";
 import { Agent } from "./agent.ts";
-import { DatabaseAdapter } from "./database.ts";
 import { MessageContainer } from "./shared.d.ts";
 import { ChatChoice, proxyRequest as defaultProxyRequest } from "./utils/common.ts";
+import { omitTextReasoning } from "./utils/formating.ts";
 
 export type SummaryChunk = {
   from: number;
@@ -11,13 +12,14 @@ export type SummaryChunk = {
 
 export class HistoryCompressor {
 
-  static COMPRESSION_RANGE = 20;
+  static COMPRESSION_RANGE = 10;
 
   constructor(
-    private adapter: DatabaseAdapter,
+    private ctx: Agent,
     private proxyRequest: typeof defaultProxyRequest = defaultProxyRequest
   ) {}
 
+  // TODO: Нужно будет проверять rate limit если сообщений много, или они слишком большие
   private async segmentHistory(history: Array<MessageContainer>): Promise<number[]> {
 
     const formatted = history
@@ -40,15 +42,22 @@ export class HistoryCompressor {
 
     const [ x ] = ans.choices as ChatChoice[];
 
+    let content = omitTextReasoning(x.message.content!)
+
+    const arrbeg = content.indexOf("[");
+    const arrend = content.indexOf("]");
+
+    content = content.slice(arrbeg, arrend + 1);
+
     try {
-      return JSON.parse(x.message.content ?? "[]");
+      return JSON.parse(content ?? "[]");
     } catch {
       return [];
     }
 
   }
 
-  private async summarizeChunk(chunk: Array<MessageContainer>): Promise<SummaryChunk> {
+  private async summarizeChunk(chunk: Array<MessageContainer>): Promise<SummaryChunk | Error> {
 
     const formatted = chunk
       .map(x => `${ x.from }: ${ x.data }`)
@@ -68,11 +77,18 @@ export class HistoryCompressor {
 
     const content = ans instanceof Error
       ? ""
-      : String((ans.choices as ChatChoice[])[0].message.content);
+      : omitTextReasoning(String((ans.choices as ChatChoice[])[0].message.content))
+        .replaceAll("\n", "")
+      ;
+
+    const first = chunk.at(0);
+    const last  = chunk.at(-1);
+
+    if ( !first || !last ) return Error("Крайние чанки не определенны");
 
     return {
-      from: chunk.at(0)!.date,
-      to: chunk.at(-1)!.date,
+      from: first.date,
+      to: last.date,
       content,
     };
 
@@ -89,16 +105,28 @@ export class HistoryCompressor {
       return history.slice(start, end);
     });
 
-    const summaries = await Promise.all(chunks.map(c => this.summarizeChunk(c)));
+    const summaries = Array<SummaryChunk>();
 
-    await Promise.all(summaries.map(s => this.saveSummary(uid, s)));
+    for ( const x of chunks.map(c => this.summarizeChunk(c)) ) {
+
+      const res = await x;
+
+      if ( res instanceof Error ) continue;
+
+      await this.saveSummary(uid, res);
+
+      await sleep(10_000);
+
+      summaries.push(res);
+
+    }
 
     return summaries;
 
   }
 
   private async saveSummary(uid: string, summary: SummaryChunk) {
-    await this.adapter.db.query(`
+    await this.ctx.adapter.db.query(`
       BEGIN TRANSACTION;
 
       LET $s = CREATE ONLY summary CONTENT {

@@ -1,8 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { assertEquals, assertExists } from "@std/assert";
-import { makeMockAdapter } from "./helpers.ts";
+import { makeMockAdapter } from "./helpers/helpers.ts";
 import { HistoryCompressor } from "../source/agent.compression.ts";
-import { ChatChoice } from "~/utils/common.ts";
 
 const mockProxyRequest = async (payload: any) => {
   const lastMessage = payload.messages.at(-1)?.content ?? "";

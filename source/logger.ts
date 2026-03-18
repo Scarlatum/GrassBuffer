@@ -1,3 +1,5 @@
+import { BASE_PATH } from "./utils/paths.ts";
+
 export class SimpleLogger {
 
   constructor(private pool: Array<object> = []) {
@@ -5,7 +7,7 @@ export class SimpleLogger {
   }
 
   private flush() {
-    Deno.writeTextFileSync(`logs/log.${ Date.now() }.json`, JSON.stringify(this.pool));
+    Deno.writeTextFileSync(`${BASE_PATH}/logs/log.${ Date.now() }.json`, JSON.stringify(this.pool));
     this.pool = [];
   }
 

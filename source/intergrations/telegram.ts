@@ -1,7 +1,8 @@
-import { Bot, sleep } from "gramio";
+import { Bot, code } from "gramio";
 import { formatKayaMessage } from "../utils/common.ts";
 import type { MessageRequestHandler } from "../interfaces/integration.ts";
 import { Integration } from "../interfaces/integration.ts";
+import { Kaya } from "../kaya.ts";
 
 /** Нормализует id чата в ключ без знака (для group/supergroup id отрицательный). */
 function normalizeID(chatId: number): string {
@@ -25,45 +26,51 @@ export class GrassBot extends Integration {
 
   start(): void {
 
-    this.bot.onStart(() => { console.log("ᚨᛖᚴ ᚦᛖᚦ ᚠᛖᛖ")})
+    this.bot.onStart(() => { 
+
+      this.notify("Что-то начинает шевелиться из-под саркофага...", "Scarlatum")
+
+    });
 
     this.bot.on("message", async (ctx) => {
 
-      console.log(ctx);
+			let username = ctx.from.username || crypto.randomUUID().replaceAll("-","");
 
-      if ( !this.messageHandler ) throw new Error("GrassBot: setMessageHandler is null")
+			if ( ctx.text?.includes("##ANONYMOUS##") ) username = crypto.randomUUID().replaceAll("-","");
 
-      this.lastMessage = ctx.id;
+      if ( username ) {
 
-      await sleep(500);
+        const kvID = await Kaya.kv.get<number>(["usernameUID", username ]);
 
-      if ( this.lastMessage !== ctx.id || !ctx.from.username ) return;
+        if ( !kvID.value || kvID.value !== ctx.from.id ) {
+          await Kaya.kv.set(["usernameUID", username ], ctx.from.id);
+        }
 
-      const typeImmitation = async () => {
-        ctx.sendChatAction("typing"); await sleep(500);
       }
 
-      ctx.sendChatAction("find_location");
+      if ( !ctx.text || !username ) return void 0;
+
+      ctx.sendChatAction("typing");
 
       switch (ctx.chat.type) {
         case "private": {
 
-          const res = await this.messageHandler(ctx.text!, ctx.from!.username!, true);
+          const res = await this.messageHandler!(ctx.text, username, true);
 
           if ( !res ) break;
 
-          await typeImmitation();
+          ctx.sendChatAction("typing");
 
           return ctx.send(formatKayaMessage(res));
 
         }
         case "group": case "supergroup": {
 
-          const res = await this.messageHandler(ctx.text!, normalizeID(ctx.chat.id), false);
+          const res = await this.messageHandler!(ctx.text, normalizeID(ctx.chat.id), false);
 
           if ( !res ) break
 
-          await typeImmitation();
+          ctx.sendChatAction("typing");
 
           return ctx.reply(formatKayaMessage(res), {
             reply_parameters: { message_id: ctx.id }
@@ -77,4 +84,35 @@ export class GrassBot extends Integration {
     this.bot.start();
 
   }
+
+  async notify(text: string, username: string) {
+
+    const uid = await Kaya.kv.get<number>(["usernameUID", username ]);
+
+    if ( !uid.value ) return Error("Unknown username");
+
+    const mess = await this.bot.api.sendMessage({
+      chat_id: uid.value,
+      text: code`${ text }`,
+      disable_notification: true,
+    });
+
+    return {
+      update: async (text: string) => {
+        return Boolean(await this.bot.api.editMessageText({
+          text,
+          message_id: mess.message_id,
+          chat_id: mess.chat.id
+        }));
+      },
+      delete: () => {
+        this.bot.api.deleteMessage({
+          message_id: mess.message_id,
+          chat_id: mess.chat.id,
+        })
+      }
+    }
+
+  }
+
 }

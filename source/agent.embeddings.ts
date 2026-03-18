@@ -2,9 +2,10 @@ import { DatabaseAdapter } from "./database.ts";
 import { SummaryChunk } from "./agent.compression.ts";
 import { SimpleLogger } from "./logger.ts";
 import { summaryChunkSchema } from "./schemas/agent.schemas.ts";
+import { Agent } from "./agent.ts";
+import { openRouterEmbeddingRequest, proxyRequest } from "./utils/common.ts";
 
 type EmbeddingResult = {
-  id: string;
   content: string;
   from: number;
   to: number;
@@ -16,24 +17,31 @@ const BATCH_DELAY_MS = 1000;
 
 export class EmbeddingsManager {
 
-  private model: string;
-  private dimensions: number;
+  private model: string = "nvidia/llama-nemotron-embed-vl-1b-v2:free";
+  private dimensions: number = 384;
   public logger = new SimpleLogger();
 
-  constructor(
-    private adapter: DatabaseAdapter,
-    private proxyRequest: (payload: object) => Promise<Record<string, object> | Error>,
-    options?: { model?: string; dimensions?: number }
-  ) {
-    this.model = options?.model ?? "sentence-transformers/all-MiniLM-L6-v2";
-    this.dimensions = options?.dimensions ?? 384;
-  }
+  constructor(private adapter: DatabaseAdapter) {}
 
-  // ─── Генерация embedding для одного текста ───
+  private async embeddingRequest(body: object): Promise<Record<string, object> | Error> {
+
+    if ( Agent.OPENROUTER ) {
+
+      const res = await openRouterEmbeddingRequest(body, Agent.OPENROUTER);
+
+      if (!(res instanceof Error)) return res;
+
+      this.logger.log({ error: res }, "OpenRouter embedding failed, falling back to proxy");
+
+    }
+
+    return proxyRequest(body);
+
+  }
 
   private async embed(text: string): Promise<number[] | null> {
     try {
-      const res = await this.proxyRequest({
+      const res = await this.embeddingRequest({
         model: this.model,
         input: text,
       });
@@ -51,8 +59,6 @@ export class EmbeddingsManager {
     }
   }
 
-  // ─── Валидация summary через Zod ───
-
   private validateSummaryChunk(raw: unknown): SummaryChunk | null {
     const result = summaryChunkSchema.safeParse(raw);
     if (!result.success) {
@@ -62,50 +68,54 @@ export class EmbeddingsManager {
     return result.data;
   }
 
-  // ─── Векторизация и сохранение summary ───
-
   async indexSummary(
     uid: string,
-    summary: SummaryChunk,
+    summary: SummaryChunk & Partial<{ id: { table: string, id: string } }>,
   ): Promise<void> {
+
     const validated = this.validateSummaryChunk(summary);
+
     if (!validated) return;
 
     const embedding = await this.embed(validated.content);
+
     if (!embedding) {
       this.logger.log({ uid, from: validated.from, to: validated.to }, "Failed to generate embedding");
       return;
     }
 
     try {
+
+      // OLD BROKEN QUERY
+      // UPDATE summary SET embedding = $embedding
+      // WHERE from = $from AND to = $to
+      // AND ->has_summary->user CONTAINS ${uid};
+
       await this.adapter.db.query(/*surql*/`
-        UPDATE summary SET embedding = $embedding
-        WHERE from = $from AND to = $to
-        AND ->has_summary->user CONTAINS ${uid};
+        BEGIN TRANSACTION;
+
+        UPDATE summary:${ summary.id!.id } SET embedding = $embedding;
+
+        COMMIT TRANSACTION;
       `, {
         embedding,
-        from: validated.from,
-        to: validated.to,
       });
     } catch (e) {
-      this.logger.log({ error: e, uid, from: validated.from }, "Failed to save embedding to DB");
+
+      this.logger.log({ error: e, uid, from: validated.from }, "Failed to save embedding to DB. Save them as file");
+
+      if ( Array.isArray(embedding) && typeof embedding[0] === "number" ) {
+
+        const view = new Float16Array(embedding);
+  
+        Deno.writeFile(`./embeddings.f16.${ uid }.bin`, new Uint8Array(view.buffer))
+
+      }
+
     }
   }
 
-  // ─── Пакетная индексация ───
-
-  async indexSummaries(
-    uid: string,
-    summaries: SummaryChunk[],
-  ): Promise<void> {
-    await Promise.all(
-      summaries.map(s => this.indexSummary(uid, s))
-    );
-  }
-
-  // ─── Пакетная индексация с задержкой (для фоновых задач) ───
-
-  async indexSummariesBatch(
+  async indexate(
     uid: string,
     summaries: SummaryChunk[],
   ): Promise<number> {
@@ -118,146 +128,87 @@ export class EmbeddingsManager {
     let processed = 0;
 
     for (const batch of batches) {
+      
       await Promise.all(
         batch.map(s => this.indexSummary(uid, s))
       );
+
       processed += batch.length;
       
       if (batches.indexOf(batch) < batches.length - 1) {
         await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
       }
+
     }
 
     this.logger.log({ uid, processed, total: summaries.length }, "Batch indexing complete");
+
     return processed;
+
   }
 
-  // ─── Поиск релевантных summaries ───
+  async search(uid: string, query: string, limit: number = 5, threshold: number = 0.47) {
 
-  async search(
-    uid: string,
-    query: string,
-    limit: number = 5,
-    threshold: number = 0.6,
-  ): Promise<EmbeddingResult[]> {
     const embedding = await this.embed(query);
+
     if (!embedding) {
       this.logger.log({ uid, query: query.slice(0, 50) }, "Search: failed to embed query");
       return [];
     }
 
     try {
-      const results = await this.adapter.db.query(/*surql*/`
-        SELECT
-          meta::id(id) AS id,
+      const [ result ] = await this.adapter.db.query<Array<EmbeddingResult[]>>(/*surql*/`
+        BEGIN TRANSACTION;
+
+        LET $x = SELECT VALUE ->has_summary->summary FROM ONLY user:${ uid };
+        LET $y = SELECT
           content,
           from,
           to,
           vector::similarity::cosine(embedding, $query_vec) AS score
-        FROM summary
-        WHERE embedding != NONE
-        AND ->has_summary->user CONTAINS ${uid}
-        AND vector::similarity::cosine(embedding, $query_vec) >= $threshold
-        ORDER BY score DESC
-        LIMIT $limit;
+        FROM $x WHERE embedding != NONE
+        ORDER BY score NUMERIC DESC LIMIT ($limit * 2);
+
+        LET $scr = SELECT VALUE score FROM $y;
+        LET $mid = math::sum($scr) / array::len($scr);
+
+        RETURN SELECT * FROM $y WHERE score >= $mid;
+
+        COMMIT TRANSACTION;
       `, {
         query_vec: embedding,
-        threshold,
-        limit,
+        limit
       });
 
-      if (!Array.isArray(results) || !results[0]) return [];
-      return results[0] as EmbeddingResult[];
+      return (result || []) as EmbeddingResult[];
+
     } catch (e) {
       this.logger.log({ error: e, uid }, "Search query failed");
       return [];
     }
   }
 
-  // ─── Гибридный поиск: эмбеддинги + recency ───
-
-  async searchHybrid(
-    uid: string,
-    query: string,
-    options?: {
-      limit?: number;
-      recencyWeight?: number;
-      maxAgeMs?: number;
-    },
-  ): Promise<EmbeddingResult[]> {
-    const {
-      limit = 5,
-      recencyWeight = 0.3,
-      maxAgeMs = 7 * 24 * 60 * 60 * 1000,
-    } = options ?? {};
-
-    const embedding = await this.embed(query);
-    if (!embedding) {
-      this.logger.log({ uid, query: query.slice(0, 50) }, "Hybrid search: failed to embed query");
-      return [];
-    }
-
-    const now = Date.now();
-
-    try {
-      const results = await this.adapter.db.query(/*surql*/`
-        LET $base_scores = (
-          SELECT
-            meta::id(id) AS id,
-            content,
-            from,
-            to,
-            vector::similarity::cosine(embedding, $query_vec) AS semantic_score
-          FROM summary
-          WHERE embedding != NONE
-          AND ->has_summary->user CONTAINS ${uid}
-        );
-
-        SELECT
-          id,
-          content,
-          from,
-          to,
-          (semantic_score * (1 - $recency_weight))
-            + ($recency_weight * (1.0 - math::clamp(($now - to) / $max_age, 0.0, 1.0)))
-            AS score
-        FROM $base_scores
-        ORDER BY score DESC
-        LIMIT $limit;
-      `, {
-        query_vec: embedding,
-        recencyWeight,
-        maxAge: maxAgeMs,
-        now,
-        limit,
-      });
-
-      if (!Array.isArray(results) || !results[0]) return [];
-      return results[0] as EmbeddingResult[];
-    } catch (e) {
-      this.logger.log({ error: e, uid }, "Hybrid search query failed");
-      return [];
-    }
-  }
-
-  // ─── Переиндексация (если сменилась модель/размерность) ───
-
   async reindexAll(uid: string): Promise<number> {
     try {
+
       const summaries = await this.adapter.db.query(/*surql*/`
-        SELECT * FROM summary
-        WHERE ->has_summary->user CONTAINS ${uid}
-        AND (embedding = NONE OR vector::dimension(embedding) != $dim)
-      `, { dim: this.dimensions });
+        SELECT * FROM (
+          SELECT VALUE ->has_summary->summary from only user:${ uid }
+        )
+      `);
 
       if (!Array.isArray(summaries) || !summaries[0]) return 0;
 
       const records = summaries[0] as SummaryChunk[];
-      await this.indexSummariesBatch(uid, records);
+
+      await this.indexate(uid, records);
+
       return records.length;
+
     } catch (e) {
       this.logger.log({ error: e, uid }, "Reindex failed");
       return 0;
     }
   }
+
 }

@@ -1,90 +1,179 @@
 import { sleep } from "gramio";
 import { Tools } from "./tools/tools.ts";
 import { ChatChoice, ChatMessage, proxyRequest } from "./utils/common.ts";
-import { SimpleLogger } from "./logger.ts";
 import { Agent } from "./agent.ts";
+import { MessageContainer } from "./shared.d.ts";
+import { Kaya } from "./kaya.ts";
+import { HistoryCompressor } from "./agent.compression.ts";
 
 export class AgenticSession {
 
+  static ESTIMATE_TPR = 3000;
+  static TPM_LIMIT = parseInt(Deno.env.get("TPM") || "6000")
   static stepCooldown = parseInt(Deno.env.get("STEP_COOLDOWN") || "2000");
+  private tools: Tools;
+  private currentTPM = 0;
+  private cooldown = Promise.withResolvers();
 
   constructor(
-    private tools: Tools,
-    private messages: ChatMessage[],
-    private logger: SimpleLogger,
-    private createCompletion: (payload: object) => Promise<Record<string, object> | Error> = proxyRequest
-  ) {}
+    private ctx: Agent,
+    private username: string,
+    private messages: ChatMessage[] = [],
+    private createCompletion: (payload: object, key?: string) => Promise<Record<string, object> | Error> = proxyRequest
+  ) {
 
-  private pruneMessages(messages: Array<ChatMessage>, keepToolMessages = 3): void {
+    this.tools = new Tools(ctx);
+
+    setInterval(() => {
+      this.cooldown.resolve(0);
+      this.currentTPM = 0;
+      this.cooldown = Promise.withResolvers();
+    }, 60_000);
+
+  }
+
+  public set history(messages: Array<MessageContainer>) {
+
+    this.messages = [ 
+      { role: "system", content: Kaya.soul },
+      ...messages.map((x) => ({
+        role: Kaya.getRole(x.from),
+        content: x.data,
+      }) as const)
+    ];
+
+  }
+
+  private async getRelevantSummaries(
+    uid: string,
+    query: string
+  ): Promise<string> {
+
+    const results = await this.ctx.embedder.search(uid, query);
+
+    if (results.length === 0) return "";
+
+    const frags = results
+      .map(r =>`[${new Date(r.from).toLocaleDateString()}]: ${r.content}`)
+      .join("\n");
+
+    return "\n\nРелевантные фрагменты из предыдущих разговоров:\n" + frags;
+    
+  }
+
+  private async updateSystemPrompt() {
+
+    const sys = this.messages.at(0);
+    const last = this.messages.at(-1);
+
+    if ( !sys?.content || !last?.content ) return;
+
+    const summary = await this.getRelevantSummaries(this.username, last.content);
+
+    if ( summary ) sys.content += summary;
+
+  }
+
+  private pruneMessages(keepToolMessages = 3) {
 
     let toolCount = 0;
 
-    for (let i = messages.length - 1; i > 0; i--) {
+    const [ sys, ...rest ] = this.messages;
 
-      const x = messages[i];
+    for (let i = this.messages.length - 1; i > 0; i--) {
 
-      if ( x.role === "tool" || x.tool_calls ) {
-        if ( toolCount++ > keepToolMessages ) {
-          x.content = "[ Данные удалены во имя экономии контекста ]";
-        }
+      const x = this.messages[i];
+
+      if (( x.role === "tool" || x.tool_calls ) && toolCount++ > keepToolMessages ) {
+        x.content = "[ Данные удалены во имя экономии контекста ]";
       }
 
-      if ( "reasoning" in x && (messages.length - i > 1) ) {
+      if ( "reasoning" in x && (this.messages.length - i > 1) ) {
         delete (x as Record<string, unknown>)["reasoning"];
       }
 
     }
 
+    this.messages = [ sys, ...rest.slice(HistoryCompressor.COMPRESSION_RANGE * -1) ];
+
   }
 
-  public async step(counter = { val: 0 }): Promise<string | Error> {
+  public async ask(query: string) {
 
-    this.pruneMessages(this.messages)
+    this.messages.push({ 
+      role: Kaya.getRole(this.username), 
+      content: query,
+    });
 
-    await sleep(AgenticSession.stepCooldown);
+    await this.updateSystemPrompt();
+
+    return await this.step();
+
+  }
+
+  private async step(counter = { val: 0 }): Promise<string | Error> {
+
+    this.pruneMessages();
+
+    const cooldown = AgenticSession.stepCooldown * counter.val;
+
+    if ( cooldown ) this.ctx.aggregator.notify(`Следующий вызов инструмента через ${ cooldown / 1000 } сек.`, this.username);
+
+    await sleep(cooldown);
 
     const ts = performance.now();
-    const choice = await this.inference();
+    const inferenceResult = await this.inference();
+
+    if ( inferenceResult instanceof Error ) {
+      return await this.onInferenceError(inferenceResult);
+    }
 
     switch (true) {
-      case choice.finish_reason === "error":
-        return Error(choice.message?.content || "Unknown error at inference");
-      case !choice.message || typeof choice.message !== "object":
+      case inferenceResult.finish_reason === "error":
+        return Error(inferenceResult.message?.content || "Unknown error at inference");
+      case !inferenceResult.message || typeof inferenceResult.message !== "object":
         return Error("Schema Error");
     }
 
-    this.logger.log(choice.message, "agentic step result");
+    this.ctx.logger.log(inferenceResult.message, "agentic step result");
 
-    const toolpass = this.checkTooling(choice);
+    const toolpass = this.checkTooling(inferenceResult);
 
     const result = toolpass
-      ? await toolpass(choice.message, counter)
-      : String(choice.message.content);
+      ? await toolpass(inferenceResult.message, counter)
+      : String(inferenceResult.message.content);
 
-    this.logger.log({ duration: performance.now() - ts, steps: counter.val }, "agentic eval time");
+    this.ctx.logger.log({ duration: performance.now() - ts, steps: counter.val }, "agentic eval time");
 
     return result;
 
   }
 
-  private async inference(): Promise<ChatChoice> {
+  private async inference(): Promise<ChatChoice | Error> {
 
     const payload = this.tools.belt.apply({
       model: Agent.MODEL!,
       messages: this.messages,
     });
 
+    if ( this.currentTPM >= AgenticSession.TPM_LIMIT ) {
+
+      const noty = this.ctx.aggregator.notify(`Аппарат перегрет ♨️`, this.username);
+
+      await this.cooldown.promise
+
+      noty.then(x => x.update(`Аппарат стабилен 🧪`))
+
+    }
+
     const res = await this.createCompletion(payload);
 
-    if (res instanceof Error) {
-      this.logger.log(res, "tool proxy error");
-      return {
-        finish_reason: "stop",
-        message: {
-          role: "tool",
-          content: `Inference Error: ${res.message}; cause: ${res.cause};`,
-        },
-      };
+    if (res instanceof Error) return res;
+
+    if ( res?.usage && "total_tokens" in res.usage && typeof res.usage.total_tokens === "number" ) {
+      this.currentTPM += res.usage.total_tokens
+    } else {
+      this.currentTPM += AgenticSession.ESTIMATE_TPR;
     }
 
     const [choice] = res.choices as Array<ChatChoice>;
@@ -104,7 +193,8 @@ export class AgenticSession {
     switch (true) {
       case choice.finish_reason === "tool_calls" || toolLen > 0:
         return this.toolPass.bind(this);
-      case Agent.inlineTool(choice.message.content):
+      case choice.message.content?.includes("<tool_call>"):
+      case choice.message.content?.includes("```json"):
         return this.inlineToolPass.bind(this);
     }
 
@@ -120,19 +210,52 @@ export class AgenticSession {
 
       if (!tool["function"]) continue;
 
+      this.ctx.aggregator.notify(
+        `Кая Использует инструмент ${ tool.function.name };\nАргументы вызова: ${ tool.function.arguments }`, 
+        this.username
+      );
+
       const mess = await this.tools.belt.route(
         tool.function.name,
         tool.id,
         JSON.parse(tool.function.arguments),
       );
 
-      this.logger.log({ value: mess }, `toolbelt router result for: ${tool.function.name}`);
+
+      this.ctx.logger.log({ value: mess }, `toolbelt router result for: ${tool.function.name}`);
 
       this.messages.push(mess);
 
     }
 
     return await this.step(counter);
+
+  }
+
+  private async onInferenceError(err: Error) {
+
+    this.messages.push({
+      role: "tool",
+      'tool_call_id': "custom",
+      content: `Inference Error: ${ err.message }; cause: ${ err.cause };`,
+    });
+
+    const aboutError = await this.inference();
+
+    if ( aboutError instanceof Error ) {
+
+      this.ctx.logger.log({ 
+        error: aboutError,
+        messages: this.messages,
+      }, "FATAL PANIC!");
+
+      this.ctx.aggregator.notify(`FATAL PANIC ON TOOL PASS:\n${ aboutError }\n\n`, this.username);
+
+      throw aboutError;
+
+    }
+
+    return String(aboutError.message.content?.trim());
 
   }
 
@@ -154,7 +277,7 @@ export class AgenticSession {
     try {
       json = JSON.parse(x.content.substring(beg, end + 1));
     } catch (e) {
-      this.logger.log({ content: x.content, error: e }, "Failed to parse inline tool JSON");
+      this.ctx.logger.log({ content: x.content, error: e }, "Failed to parse inline tool JSON");
       return `Ошибка парсинга JSON: ${(e as Error).message}. Содержимое: ${x.content.substring(beg, end + 1)}`;
     }
 
@@ -164,7 +287,7 @@ export class AgenticSession {
 
     const toolId = `call_${Math.random().toString(32).substring(-2)}`;
 
-    this.logger.log(json, "parseTextTool parsed json");
+    this.ctx.logger.log(json, "parseTextTool parsed json");
 
     const mess = await this.tools.belt.route(
       json.name,
@@ -172,13 +295,16 @@ export class AgenticSession {
       json.arguments ?? {},
     );
 
-    this.logger.log({ value: mess }, `toolbelt router result for: ${json.name}`);
+    this.ctx.logger.log({ value: mess }, `toolbelt router result for: ${json.name}`);
 
     this.messages.push(mess);
 
-    const { message } = await this.inference();
+    const inferenceResult = await this.inference();
 
-    return String(message.content?.trim());
+    return inferenceResult instanceof Error
+      ? await this.onInferenceError(inferenceResult)
+      : String(inferenceResult.message.content?.trim())
+      ;
 
   }
 
