@@ -5,6 +5,7 @@ import { Agent } from "./agent.ts";
 import { MessageContainer } from "./shared.d.ts";
 import { Kaya } from "./kaya.ts";
 import { HistoryCompressor } from "./agent.compression.ts";
+import { InferencePayload } from "./tools/toolbelt.ts";
 
 export class AgenticSession {
 
@@ -14,6 +15,7 @@ export class AgenticSession {
   private tools: Tools;
   private currentTPM = 0;
   private cooldown = Promise.withResolvers();
+  private inferencePayload: InferencePayload;
 
   constructor(
     private ctx: Agent,
@@ -24,11 +26,13 @@ export class AgenticSession {
 
     this.tools = new Tools(ctx);
 
+    this.inferencePayload = Object();
+
     setInterval(() => {
       this.cooldown.resolve(0);
       this.currentTPM = 0;
       this.cooldown = Promise.withResolvers();
-    }, 60_000);
+    }, 85_000);
 
   }
 
@@ -107,6 +111,11 @@ export class AgenticSession {
 
     await this.updateSystemPrompt();
 
+    this.inferencePayload = this.tools.belt.apply({
+      model: Agent.MODEL!,
+      messages: this.messages,
+    });
+
     return await this.step();
 
   }
@@ -151,10 +160,10 @@ export class AgenticSession {
 
   private async inference(): Promise<ChatChoice | Error> {
 
-    const payload = this.tools.belt.apply({
-      model: Agent.MODEL!,
-      messages: this.messages,
-    });
+    // const payload = this.tools.belt.apply({
+    //   model: Agent.MODEL!,
+    //   messages: this.messages,
+    // });
 
     if ( this.currentTPM >= AgenticSession.TPM_LIMIT ) {
 
@@ -166,7 +175,7 @@ export class AgenticSession {
 
     }
 
-    const res = await this.createCompletion(payload);
+    const res = await this.createCompletion(this.inferencePayload);
 
     if (res instanceof Error) return res;
 
