@@ -1,4 +1,4 @@
-import { Agent } from "../agent.ts";
+import { Agent } from "../agent/agent.ts";
 import { Integration, MessageHandler, MessageRequestHandler } from "../interfaces/integration.ts";
 
 export class Aggregator implements Integration {

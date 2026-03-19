@@ -39,7 +39,7 @@ export class Runner {
 
     this.isRunning = true;
 
-    const playgroundPath = `${BASE_PATH}/playgrounds`.replace(/\\/g, "/");
+    const playgroundPath = `${BASE_PATH}/personal/playgrounds`.replace(/\\/g, "/");
 
     const command = new Deno.Command("deno", {
       args: [
@@ -47,7 +47,7 @@ export class Runner {
         `--allow-read=${ playgroundPath }`,
         `--allow-write=${ playgroundPath }`,
         '--allow-net',
-        `${ fromCWD ? "./" : "./playgrounds/" }${ relativePath.replace(/^[\\/]/, "") }`,
+        `${ fromCWD ? "./" : "./personal/playgrounds/" }${ relativePath.replace(/^[\\/]/, "") }`,
         ...args
       ],
       stdout: "piped",

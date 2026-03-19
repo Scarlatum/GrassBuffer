@@ -2,12 +2,15 @@ import { Bot, code } from "gramio";
 import { formatKayaMessage } from "../utils/common.ts";
 import type { MessageRequestHandler } from "../interfaces/integration.ts";
 import { Integration } from "../interfaces/integration.ts";
-import { Kaya } from "../kaya.ts";
+import { Agent } from "../agent/agent.ts";
+import { BASE_PATH } from "../utils/paths.ts";
 
 /** Нормализует id чата в ключ без знака (для group/supergroup id отрицательный). */
 function normalizeID(chatId: number): string {
   return `chat${ Math.abs(chatId) }`; 
 }
+
+const kv = await Deno.openKv(`${BASE_PATH}/kv/telegram`);
 
 export class GrassBot extends Integration {
 
@@ -27,10 +30,12 @@ export class GrassBot extends Integration {
   start(): void {
 
     this.bot.onStart(() => { 
-
-      this.notify("Что-то начинает шевелиться из-под саркофага...", "Scarlatum")
-
+      this.notify("Что-то начинает шевелиться из-под саркофага...", Agent.OWTAG)
     });
+
+    this.bot.onStop(() => {
+      this.notify("Шум из под саркофага сходит на нет, что-то уходит в глубокий сон...", Agent.OWTAG)
+    })
 
     this.bot.on("message", async (ctx) => {
 
@@ -40,10 +45,10 @@ export class GrassBot extends Integration {
 
       if ( username ) {
 
-        const kvID = await Kaya.kv.get<number>(["usernameUID", username ]);
+        const kvID = await kv.get<number>(["usernameUID", username ]);
 
         if ( !kvID.value || kvID.value !== ctx.from.id ) {
-          await Kaya.kv.set(["usernameUID", username ], ctx.from.id);
+          await kv.set(["usernameUID", username ], ctx.from.id);
         }
 
       }
@@ -87,7 +92,7 @@ export class GrassBot extends Integration {
 
   async notify(text: string, username: string) {
 
-    const uid = await Kaya.kv.get<number>(["usernameUID", username ]);
+    const uid = await kv.get<number>(["usernameUID", username ]);
 
     if ( !uid.value ) return Error("Unknown username");
 

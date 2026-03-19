@@ -1,7 +1,7 @@
 import { SummaryChunk } from "./agent.compression.ts";
-import { summaryChunkSchema } from "./schemas/agent.schemas.ts";
+import { summaryChunkSchema } from "../schemas/agent.schemas.ts";
 import { Agent } from "./agent.ts";
-import { openRouterEmbeddingRequest, proxyRequest } from "./utils/common.ts";
+import { openRouterEmbeddingRequest, proxyRequest } from "../utils/common.ts";
 
 type EmbeddingResult = {
   content: string;

@@ -1,6 +1,6 @@
 import { AgenticSession } from "./agent.session.ts";
 import { Agent } from "./agent.ts";
-import { MessageContainer } from "./shared.d.ts";
+import { MessageContainer } from "../shared.d.ts";
 
 type NameTag = string;
 

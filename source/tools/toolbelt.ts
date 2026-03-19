@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import { ChatMessage } from "../utils/common.ts";
 import { AnyFunction, DeriveDescription } from "../shared.d.ts";
-import { Agent } from "../agent.ts";
+import { Agent } from "../agent/agent.ts";
 import { ToolError } from "../locales/keys.ts";
 
 interface ITool {
@@ -87,6 +87,8 @@ export class ToolSet {
 
   }
 }
+
+export type InferencePayload = ReturnType<InstanceType<typeof Toolbelt>['apply']>
 
 export class Toolbelt<const C extends ToolCategories> {
 
@@ -219,17 +221,11 @@ export class Toolbelt<const C extends ToolCategories> {
   }
 
   public apply<T extends { model: string, messages: ChatMessage[] }>(params: T) {
-
-    const [ sys ] = params.messages;
-
-    sys.content += "\n" + Toolbelt.TOOLS_INSTRUCTIONS;
-
     return {
       temperature: this.isDefault ? 0.8 : 0.0,
       tools: this.currentSet.tools,
       ...params,
-    }
-
+     }
   }
 
   // deno-lint-ignore no-explicit-any

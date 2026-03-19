@@ -1,4 +1,4 @@
-import { Agent } from "../agent.ts";
+import { Agent } from "../agent/agent.ts";
 import { Kaya } from "../kaya.ts";
 import { FileSystemTools } from "./categories/fs.tools.ts";
 import { JournalTools } from "./categories/journal.tool.ts";
@@ -65,9 +65,9 @@ export class Tools {
 
   private async create(payload: { text: string, description: string, tags: string[] }) {
     
-    if ( Tools.counter === 0 ) Deno.mkdirSync(`${BASE_PATH}/journal/${ Tools.journalSession }`);
+    if ( Tools.counter === 0 ) Deno.mkdirSync(`${BASE_PATH}/personal/journal/${ Tools.journalSession }`);
 
-    const path = `${BASE_PATH}/journal/${ Tools.journalSession }/${ String(Tools.counter++).padStart(3,"0") }.md`;
+    const path = `${BASE_PATH}/personal/journal/${ Tools.journalSession }/${ String(Tools.counter++).padStart(3,"0") }.md`;
 
     await Deno.writeTextFile(path, payload.text);
     await this.agent.adapter.db.query(`
@@ -160,7 +160,7 @@ export class Tools {
     }
     
     const normalizedPath = payload.path.replace(/^[\\/]/, "");
-    const fullPath = `./playgrounds/${normalizedPath}`;
+    const fullPath = `./personal/playgrounds/${normalizedPath}`;
     
     const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
     

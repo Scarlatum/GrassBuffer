@@ -1,11 +1,11 @@
 import { sleep } from "gramio";
-import { Tools } from "./tools/tools.ts";
-import { ChatChoice, ChatMessage, proxyRequest } from "./utils/common.ts";
+import { Tools } from "../tools/tools.ts";
+import { ChatChoice, ChatMessage, proxyRequest } from "../utils/common.ts";
 import { Agent } from "./agent.ts";
-import { MessageContainer } from "./shared.d.ts";
-import { Kaya } from "./kaya.ts";
+import { MessageContainer } from "../shared.d.ts";
+import { Kaya } from "../kaya.ts";
 import { HistoryCompressor } from "./agent.compression.ts";
-import { InferencePayload } from "./tools/toolbelt.ts";
+import { InferencePayload, Toolbelt } from "../tools/toolbelt.ts";
 
 export class AgenticSession {
 
@@ -17,10 +17,15 @@ export class AgenticSession {
   private cooldown = Promise.withResolvers();
   private inferencePayload: InferencePayload;
 
+  private readonly messages = Array<ChatMessage>(HistoryCompressor.COMPRESSION_RANGE + 1);
+
+  private soul = Kaya.soul;
+  private warn = Toolbelt.TOOLS_INSTRUCTIONS;
+  private info = "";
+
   constructor(
     private ctx: Agent,
     private username: string,
-    private messages: ChatMessage[] = [],
     private createCompletion: (payload: object, key?: string) => Promise<Record<string, object> | Error> = proxyRequest
   ) {
 
@@ -38,13 +43,38 @@ export class AgenticSession {
 
   public set history(messages: Array<MessageContainer>) {
 
-    this.messages = [ 
-      { role: "system", content: Kaya.soul },
-      ...messages.map((x) => ({
+    if ( messages.length === 0 ) return;
+
+    const len = this.messages.length;
+
+    this.messages[0];
+    
+    let ptr = 0;
+
+    for ( let i = 1; i < len; i++ ) {
+
+      const x = messages[ptr++];
+
+      this.messages[ len - i ] = {
         role: Kaya.getRole(x.from),
-        content: x.data,
-      }) as const)
-    ];
+        content: x.data
+      };
+
+    }
+
+  }
+
+  public appendMessage(x: ChatMessage) {
+
+    for ( let i = 1; i < this.messages.length; i++ ) {
+
+      const next = this.messages[i + 1];
+
+      if ( next ) this.messages[i] = next;
+      
+    }
+
+    this.messages[this.messages.length - 1] = x;
 
   }
 
@@ -67,14 +97,21 @@ export class AgenticSession {
 
   private async updateSystemPrompt() {
 
-    const sys = this.messages.at(0);
     const last = this.messages.at(-1);
 
-    if ( !sys?.content || !last?.content ) return;
+    if ( !last?.content ) return;
 
     const summary = await this.getRelevantSummaries(this.username, last.content);
 
-    if ( summary ) sys.content += summary;
+    if ( summary ) this.info += summary;
+
+    this.messages[0] = {
+      role: "system",
+      content: this.soul
+        + "\n\n" + this.info
+        + "\n\n" + this.warn
+        + "\n\n" + `Дата: ${ new Date().toLocaleDateString() }`
+    }
 
   }
 
@@ -82,13 +119,11 @@ export class AgenticSession {
 
     let toolCount = 0;
 
-    const [ sys, ...rest ] = this.messages;
-
     for (let i = this.messages.length - 1; i > 0; i--) {
 
       const x = this.messages[i];
 
-      if (( x.role === "tool" || x.tool_calls ) && toolCount++ > keepToolMessages ) {
+      if (( x.role === "tool" || x.tool_calls ) && ++toolCount > keepToolMessages ) {
         x.content = "[ Данные удалены во имя экономии контекста ]";
       }
 
@@ -98,16 +133,14 @@ export class AgenticSession {
 
     }
 
-    this.messages = [ sys, ...rest.slice(HistoryCompressor.COMPRESSION_RANGE * -1) ];
-
   }
 
   public async ask(query: string) {
 
-    this.messages.push({ 
+    this.messages[this.messages.length - 1] = { 
       role: Kaya.getRole(this.username), 
       content: query,
-    });
+    };
 
     await this.updateSystemPrompt();
 
@@ -130,7 +163,6 @@ export class AgenticSession {
 
     await sleep(cooldown);
 
-    const ts = performance.now();
     const inferenceResult = await this.inference();
 
     if ( inferenceResult instanceof Error ) {
@@ -152,18 +184,13 @@ export class AgenticSession {
       ? await toolpass(inferenceResult.message, counter)
       : String(inferenceResult.message.content);
 
-    this.ctx.logger.log({ duration: performance.now() - ts, steps: counter.val }, "agentic eval time");
-
     return result;
 
   }
 
   private async inference(): Promise<ChatChoice | Error> {
 
-    // const payload = this.tools.belt.apply({
-    //   model: Agent.MODEL!,
-    //   messages: this.messages,
-    // });
+    this.inferencePayload.tools = this.tools.belt.currentSet.tools;
 
     if ( this.currentTPM >= AgenticSession.TPM_LIMIT ) {
 
@@ -189,7 +216,7 @@ export class AgenticSession {
 
     if ("logprobs" in choice) delete choice.logprobs;
 
-    this.messages.push(choice.message);
+    this.appendMessage(choice.message);
 
     return choice;
 
@@ -233,7 +260,7 @@ export class AgenticSession {
 
       this.ctx.logger.log({ value: mess }, `toolbelt router result for: ${tool.function.name}`);
 
-      this.messages.push(mess);
+      this.appendMessage(mess);
 
     }
 
@@ -243,7 +270,7 @@ export class AgenticSession {
 
   private async onInferenceError(err: Error) {
 
-    this.messages.push({
+    this.appendMessage({
       role: "tool",
       'tool_call_id': "custom",
       content: `Inference Error: ${ err.message }; cause: ${ err.cause };`,
@@ -306,7 +333,7 @@ export class AgenticSession {
 
     this.ctx.logger.log({ value: mess }, `toolbelt router result for: ${json.name}`);
 
-    this.messages.push(mess);
+    this.appendMessage(mess);
 
     const inferenceResult = await this.inference();
 

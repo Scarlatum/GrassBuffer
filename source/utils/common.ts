@@ -1,5 +1,5 @@
-import { format, bold, join, code } from "gramio";
-import { Agent } from "../agent.ts";
+import { format, bold, join, pre  } from "gramio";
+import { Agent } from "../agent/agent.ts";
 
 const codeRE = /`{3}(.|\n)+?`{3}/gm;
 
@@ -61,7 +61,7 @@ export function formatKayaMessage(message: string) {
 
   const segments = parseKayaBoldSegments(message);
 
-  const parts = Array<[ typeof format, string ]>();
+  const parts = Array<[ typeof format | typeof pre, string ]>();
 
   for ( const x of segments ) {
 
@@ -72,7 +72,7 @@ export function formatKayaMessage(message: string) {
 
 				const c = x.split("\n").slice(1,-1);
 
-        parts.push([ code, c.join("\n") ]);
+        parts.push([ pre, c.join("\n") ]);
 
         text = text.replace(x, "")
 
@@ -83,8 +83,6 @@ export function formatKayaMessage(message: string) {
 
     // !DEBUG
     console.log(parts, segments);
-
-    return parts;
 
   }
 

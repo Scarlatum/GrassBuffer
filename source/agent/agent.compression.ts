@@ -1,8 +1,8 @@
 import { sleep } from "gramio";
-import { Agent } from "./agent.ts";
-import { MessageContainer } from "./shared.d.ts";
-import { ChatChoice, proxyRequest as defaultProxyRequest } from "./utils/common.ts";
-import { omitTextReasoning } from "./utils/formating.ts";
+import { Agent } from "../agent/agent.ts";
+import { MessageContainer } from "../shared.d.ts";
+import { ChatChoice, proxyRequest as defaultProxyRequest } from "../utils/common.ts";
+import { omitTextReasoning } from "../utils/formating.ts";
 
 export type SummaryChunk = {
   from: number;

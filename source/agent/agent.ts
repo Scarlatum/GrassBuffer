@@ -1,15 +1,18 @@
-import { Kaya } from "./kaya.ts"
+import { Kaya } from "../kaya.ts"
 
-import ruLocale from "./locales/ru.json" with { type: "json" };
+import ruLocale from "../locales/ru.json" with { type: "json" };
 
-import { SimpleLogger } from "./logger.ts";
-import { DatabaseAdapter } from "./database.ts";
-import { Integration } from "./interfaces/integration.ts";
+import { MessageContainer } from "../shared.d.ts";
+
+import { SimpleLogger } from "../logger.ts";
+import { DatabaseAdapter } from "../database.ts";
+
+import { Integration } from "../interfaces/integration.ts";
+import { Aggregator } from "../intergrations/aggregator.ts";
+
 import { Memory, UserMemoryDescriptor } from "./agent.memory.ts";
-import { MessageContainer } from "./shared.d.ts";
 import { HistoryCompressor } from "./agent.compression.ts";
 import { EmbeddingsManager } from "./agent.embeddings.ts";
-import { Aggregator } from "./intergrations/aggregator.ts";
 
 type SessionPayload = {
   message : string;
@@ -46,8 +49,8 @@ export class Agent extends Kaya {
       const noty = this.aggregator.notify("Собирает информацию", contextKey);
 
       const history = (message.includes("##CLN##") && (message = message.replace("##CLN##", "")))
-        ? await this.adapter.getUserHistory(contextKey)
-        : []
+        ? []
+        : await this.adapter.getUserHistory(contextKey)
         ;
 
       noty.then(x => x.update("Думает о вмешательстве"));
@@ -63,7 +66,7 @@ export class Agent extends Kaya {
 
         const res = await this.message({ history, message, user });
 
-        noty.then(x => x.update("Думает о вмешательстве"));
+        noty.then(x => x.delete());
 
         return res;
 

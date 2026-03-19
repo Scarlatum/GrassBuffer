@@ -1,7 +1,7 @@
 import { Surreal } from "surrealdb"
 import { MessageContainer } from "./shared.d.ts";
 import { sleep } from "gramio";
-import { HistoryCompressor } from "./agent.compression.ts";
+import { HistoryCompressor } from "./agent/agent.compression.ts";
 import { BASE_PATH } from "./utils/paths.ts";
 
 export class DatabaseAdapter {
@@ -32,8 +32,8 @@ export class DatabaseAdapter {
         "start",
         "-b",
         "0.0.0.0:8050",
-        "--log",
-        "debug",
+        // "--log",
+        // "debug",
         dbUrl,
       ],
     }).spawn();
@@ -150,10 +150,7 @@ export class DatabaseAdapter {
       BEGIN TRANSACTION;
 
       LET $arr = array::flatten(select value <-chat<-message from only user:${ uid });
-
-			if ( $arr is none ) return [];
-
-      LET $beg = math::max([ array::len($arr) - $limit, 0 ]);
+      LET $beg = math::max([ array::len($arr OR []) - $limit, 0 ]);
 
       RETURN select * from $arr order by date asc limit $limit start $beg;
 

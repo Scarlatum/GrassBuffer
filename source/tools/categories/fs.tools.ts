@@ -101,14 +101,16 @@ export class FileSystemTools extends CategoryTools {
 
               if ( stat.isFile ) return dir;
 
-              else if ( stat.isDirectory ) return processDir(dir);
+              else if ( stat.isDirectory ) await processDir(dir);
 
             } catch(e) { return (e as Error).message };
+          } else {
+
+            await Promise.all(FileSystemTools.allowedDirs.map(x => processDir(`./${ x }`)))
+
           }
 
-          else await Promise.all(FileSystemTools.allowedDirs.map(x => processDir(`./${ x }`)))
-
-          return paths;
+          return paths.join("\n");
           
         },
       },
